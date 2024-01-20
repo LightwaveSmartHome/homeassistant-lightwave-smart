@@ -1,7 +1,14 @@
 import logging
 from .const import LIGHTWAVE_LINK2, LIGHTWAVE_ENTITIES, CONF_HOMEKIT, DOMAIN
 from homeassistant.components.binary_sensor import BinarySensorEntity, BinarySensorEntityDescription
-from homeassistant.components.binary_sensor import (DEVICE_CLASS_WINDOW, DEVICE_CLASS_PLUG, DEVICE_CLASS_MOTION)
+# Device Classes
+try:
+    from homeassistant.components.binary_sensor import BinarySensorDeviceClass
+    DEVICE_CLASS_WINDOW = BinarySensorDeviceClass.WINDOW
+    DEVICE_CLASS_PLUG = BinarySensorDeviceClass.PLUG
+    DEVICE_CLASS_MOTION = BinarySensorDeviceClass.MOTION
+except ImportError:
+    from homeassistant.components.binary_sensor import (DEVICE_CLASS_WINDOW, DEVICE_CLASS_PLUG, DEVICE_CLASS_MOTION)
 from homeassistant.core import callback
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers import entity_registry as er
