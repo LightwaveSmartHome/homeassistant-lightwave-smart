@@ -151,9 +151,6 @@ class LWRF2Sensor(SensorEntity):
                 second = self._state - min * 60
                 self._state = dt_util.parse_datetime(f'{year}-{month:02}-{day:02}T{hour:02}:{min:02}:{second:02}Z')
 
-        if self._lwlink.featuresets[self._featureset_id].is_energy() and not self.entity_description.key == 'rssi':
-            self.entity_description.entity_category = None
-
         self._attr_unique_id = f"{self._featureset_id}_{self.entity_description.key}"
         self._attr_device_info = make_device_info(self, name)
 
