@@ -33,6 +33,7 @@ async def handle_webhook(hass, webhook_id, request):
             if ent.hass is not None:
                 ent.async_schedule_update_ha_state(True)
 
+# TODO2 - remove
 def async_central_callback(**kwargs):
     _LOGGER.debug("Central callback")
 
@@ -92,6 +93,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
     hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_ENTITIES] = []
     if not publicapi:
         url = None
+        # TODO2 - remove
         # _LOGGER.debug("Register central callback")
         # await link.async_register_callback(async_central_callback)
     else:
@@ -114,7 +116,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
             configuration_url = "https://my.lightwaverf.com/a/login",
             entry_type=dr.DeviceEntryType.SERVICE,
             identifiers={(DOMAIN, featureset_id)},
-            manufacturer= "Lightwave RF",
+            manufacturer= "Lightwave",
             name=hubname,
             model=link.featuresets[featureset_id].product_code
         )
@@ -148,6 +150,14 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
     hass.async_create_task(forward_setup(config_entry, "sensor"))
     hass.async_create_task(forward_setup(config_entry, "lock"))
     hass.async_create_task(forward_setup(config_entry, "event"))
+    hass.async_create_task(forward_setup(config_entry, "update"))
+    
+    # await hass.config_entries.async_forward_entry_setups(config_entry, setups)
+    
+    # async def async_new_device_discovery(service: ServiceCall) -> None:
+    # hass.services.async_register(
+    #     DOMAIN, SERVICE_UPDATE_DEVS, async_new_device_discovery
+    # )
 
     return True
 
@@ -162,6 +172,8 @@ async def async_remove_entry(hass, config_entry):
     await hass.config_entries.async_forward_entry_unload(config_entry, "binary_sensor")
     await hass.config_entries.async_forward_entry_unload(config_entry, "sensor")
     await hass.config_entries.async_forward_entry_unload(config_entry, "lock")
+    await hass.config_entries.async_forward_entry_unload(config_entry, "event")
+    await hass.config_entries.async_forward_entry_unload(config_entry, "update")
 
 async def reload_lw(hass, config_entry):
 

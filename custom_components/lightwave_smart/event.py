@@ -23,7 +23,7 @@ TYPES = [ "Short", "Long", "Long-Release" ]
 PRESSES_MAX = 5
 
 EVENT_TYPES_BUTTON = [ None, 'Short.1', 'Short.2', 'Short.3', 'Short.4', 'Short.5', 'Long', 'Long-Release' ]
-EVENT_TYPES_BUTTON_PAIR = [ 'Up.Short.1', 'Up.Short.2', 'Up.Short.3', 'Up.Short.4', 'Up.Short.5', 'Up.Long', 
+EVENT_TYPES_BUTTON_PAIR = [ None, 'Up.Short.1', 'Up.Short.2', 'Up.Short.3', 'Up.Short.4', 'Up.Short.5', 'Up.Long', 
                            'Up.Long-Release', 'Down.Short.1', 'Down.Short.2', 'Down.Short.3', 'Down.Short.4', 'Down.Short.5', 'Down.Long', 'Down.Long-Release' ]
             
 SMART_SWITCH = EventEntityDescription(
