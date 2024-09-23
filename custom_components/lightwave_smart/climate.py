@@ -16,6 +16,8 @@ try:
     SUPPORT_PRESET_MODE = ClimateEntityFeature.PRESET_MODE
     SUPPORT_TARGET_HUMIDITY = ClimateEntityFeature.TARGET_HUMIDITY
     SUPPORT_TARGET_TEMPERATURE = ClimateEntityFeature.TARGET_TEMPERATURE
+    SUPPORT_TURN_ON = ClimateEntityFeature.TURN_ON
+    SUPPORT_TURN_OFF = ClimateEntityFeature.TURN_OFF
 except ImportError:
     from homeassistant.components.climate.const import (
         CURRENT_HVAC_HEAT,
@@ -26,6 +28,8 @@ except ImportError:
         SUPPORT_PRESET_MODE,
         SUPPORT_TARGET_HUMIDITY,
         SUPPORT_TARGET_TEMPERATURE,
+        SUPPORT_TURN_ON,
+        SUPPORT_TURN_OFF,
     )
 # Units
 try:
@@ -72,6 +76,7 @@ class LWRF2Climate(ClimateEntity):
 
     _attr_has_entity_name = True
     _attr_should_poll = False
+    _enable_turn_on_off_backwards_compatibility = True
 
     def __init__(self, name, featureset_id, link):
         _LOGGER.debug("Adding climate %s - %s ", name, featureset_id)
@@ -89,15 +94,17 @@ class LWRF2Climate(ClimateEntity):
         self._attr_unique_id = f"{self._featureset_id}_{self.entity_description.key}"
         self._attr_device_info = make_device_info(self, name)
 
-
         self._trv = self._lwlink.featuresets[self._featureset_id].is_trv()
         self._has_humidity = 'targetHumidity' in self._lwlink.featuresets[self._featureset_id].features.keys()
         if self._has_humidity:
-            self._support_flags = SUPPORT_TARGET_TEMPERATURE | SUPPORT_TARGET_HUMIDITY
+            self._support_flags = SUPPORT_TARGET_TEMPERATURE | SUPPORT_TARGET_HUMIDITY | SUPPORT_TURN_ON | SUPPORT_TURN_OFF
         elif self._trv:
-            self._support_flags = SUPPORT_TARGET_TEMPERATURE | SUPPORT_PRESET_MODE
+            self._support_flags = SUPPORT_TARGET_TEMPERATURE | SUPPORT_PRESET_MODE | SUPPORT_TURN_ON | SUPPORT_TURN_OFF
         else:
-            self._support_flags = SUPPORT_TARGET_TEMPERATURE
+            self._support_flags = SUPPORT_TARGET_TEMPERATURE | SUPPORT_TURN_ON | SUPPORT_TURN_OFF
+
+
+        # _LOGGER.warning("Added climate............................................... %s %s", name, self._support_flags)
         
         if 'heatState' in self._lwlink.featuresets[self._featureset_id].features.keys():
             self._thermostat = False
@@ -236,6 +243,12 @@ class LWRF2Climate(ClimateEntity):
     async def async_set_humidity(self, humidity):
         feature_id = self._lwlink.featuresets[self._featureset_id].features['targetHumidity'].id
         await self._lwlink.async_write_feature(feature_id, humidity)
+
+    async def async_turn_off(self) -> None:
+        await self.async_set_hvac_mode(HVACMode.OFF)
+
+    async def async_turn_on(self) -> None:
+        await self.async_set_hvac_mode(HVACMode.HEATING)
 
     async def async_set_hvac_mode(self, hvac_mode):
         feature_id = self._lwlink.featuresets[self._featureset_id].features['heatState'].id
