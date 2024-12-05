@@ -83,7 +83,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
     else:
         link = lightwave_smart.LWLink2(email, password)
 
-    connected = await link.async_connect(max_tries = 1, force_keep_alive_secs=0)
+    connected = await link.async_connect(max_tries=6, force_keep_alive_secs=0, source="hass")
     if not connected:
         return False
     await link.async_get_hierarchy()
@@ -148,6 +148,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
     hass.async_create_task(forward_setup(config_entry, "sensor"))
     hass.async_create_task(forward_setup(config_entry, "lock"))
     hass.async_create_task(forward_setup(config_entry, "event"))
+    hass.async_create_task(forward_setup(config_entry, "update"))
 
     return True
 
@@ -162,6 +163,8 @@ async def async_remove_entry(hass, config_entry):
     await hass.config_entries.async_forward_entry_unload(config_entry, "binary_sensor")
     await hass.config_entries.async_forward_entry_unload(config_entry, "sensor")
     await hass.config_entries.async_forward_entry_unload(config_entry, "lock")
+    await hass.config_entries.async_forward_entry_unload(config_entry, "event")
+    await hass.config_entries.async_forward_entry_unload(config_entry, "update")
 
 async def reload_lw(hass, config_entry):
 

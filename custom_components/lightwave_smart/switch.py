@@ -8,7 +8,7 @@ from homeassistant.components.switch import (
 from homeassistant.helpers import entity_registry as er
 from homeassistant.core import callback
 from .utils import (
-    make_device_info,
+    make_device_info_V2,
     get_extra_state_attributes
 )
 
@@ -59,6 +59,8 @@ class LWRF2Switch(SwitchEntity):
         _LOGGER.debug("Adding socket/switch: %s - %s - %s ", name, description.key, featureset_id)
         self._featureset_id = featureset_id
         self._lwlink = link
+        
+        featureset = self._lwlink.featuresets[self._featureset_id]
 
         for hub_featureset_id, hubname in self._lwlink.get_hubs():
             self._linkid = hub_featureset_id
@@ -67,11 +69,11 @@ class LWRF2Switch(SwitchEntity):
 
         self._homekit = homekit
 
-        self._gen2 = self._lwlink.featuresets[self._featureset_id].is_gen2()
+        self._gen2 = featureset.is_gen2()
         self._attr_assumed_state = not self._gen2
 
         self._attr_unique_id = f"{self._featureset_id}_{self.entity_description.key}"
-        self._attr_device_info = make_device_info(self, name)
+        self._attr_device_info = make_device_info_V2(featureset)
 
 
         self._state = \
@@ -103,8 +105,7 @@ class LWRF2Switch(SwitchEntity):
 
     async def async_update(self):
         """Update state"""
-        self._state = \
-            self._lwlink.featuresets[self._featureset_id].features["switch"].state
+        self._state = self._lwlink.featuresets[self._featureset_id].features["switch"].state
 
     @property
     def is_on(self):
@@ -113,13 +114,13 @@ class LWRF2Switch(SwitchEntity):
 
     async def async_turn_on(self, **kwargs):
         """Turn the Lightwave switch on."""
-        self._state = True
+        # self._state = True
         await self._lwlink.async_turn_on_by_featureset_id(self._featureset_id)
         self.async_schedule_update_ha_state()
 
     async def async_turn_off(self, **kwargs):
         """Turn the Lightwave switch off."""
-        self._state = False
+        # self._state = False
         await self._lwlink.async_turn_off_by_featureset_id(self._featureset_id)
         self.async_schedule_update_ha_state()
 

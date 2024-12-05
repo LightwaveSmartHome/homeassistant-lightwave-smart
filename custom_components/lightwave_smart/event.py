@@ -1,4 +1,5 @@
 import logging
+import traceback
 from .const import LIGHTWAVE_LINK2, LIGHTWAVE_ENTITIES, SERVICE_SETBRIGHTNESS, CONF_HOMEKIT, DOMAIN
 from homeassistant.components.event import (
     EventDeviceClass,
@@ -23,7 +24,7 @@ TYPES = [ "Short", "Long", "Long-Release" ]
 PRESSES_MAX = 5
 
 EVENT_TYPES_BUTTON = [ None, 'Short.1', 'Short.2', 'Short.3', 'Short.4', 'Short.5', 'Long', 'Long-Release' ]
-EVENT_TYPES_BUTTON_PAIR = [ 'Up.Short.1', 'Up.Short.2', 'Up.Short.3', 'Up.Short.4', 'Up.Short.5', 'Up.Long', 
+EVENT_TYPES_BUTTON_PAIR = [ None, 'Up.Short.1', 'Up.Short.2', 'Up.Short.3', 'Up.Short.4', 'Up.Short.5', 'Up.Long', 
                            'Up.Long-Release', 'Down.Short.1', 'Down.Short.2', 'Down.Short.3', 'Down.Short.4', 'Down.Short.5', 'Down.Long', 'Down.Long-Release' ]
             
 SMART_SWITCH = EventEntityDescription(
@@ -54,7 +55,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, asyn
     for featureset_id, name in link.get_uiButtonPair_producers():
         try:
             uibuttons.append(LWRF2UIButton(name, featureset_id, link, homekit, SMART_SWITCH_PAIR))
-        except Exception as e: _LOGGER.exception("Could not add LWRF2UIButton")
+        except Exception as e: _LOGGER.exception("Could not add LWRF2UIButton - Pair")
 
     for featureset_id, name in link.get_uiButton_producers():
         try:
@@ -110,16 +111,18 @@ class LWRF2UIButton(EventEntity):
     def async_update_callback(self, **kwargs):
         """Update the component's state."""
         try:
-            _LOGGER.debug("async_update_callback - Button event: %s - %s - %s", self.entity_id, kwargs, self.entity_description.key)
+            _LOGGER.debug(f"async_update_callback - Button event: {self.entity_id} - {kwargs} - {self.entity_description.key}")
             
             if kwargs["feature"] == self.entity_description.key:
                 feature = self._lwlink.get_feature_by_featureid(kwargs["feature_id"])
-                self._state = self._get_event_type(feature.decoded_obj)
-                self._trigger_event(self._state)
-                self.async_schedule_update_ha_state(True)
+                if feature.decoded_obj is not None: 
+                    self._state = self._get_event_type(feature.decoded_obj)
+                    self._trigger_event(self._state)
+                    self.async_schedule_update_ha_state(True)
                 
         except Exception as e: 
-            _LOGGER.warning("async_update_callback - err %s - %s ", self.entity_id, e)
+            _LOGGER.warning(f"async_update_callback - error - entity: {self.entity_id} - {e} - kwargs: {kwargs} - error stack: {traceback.format_exc()}")
+            pass
         
         
     def _get_event_type(self, decoded_obj):

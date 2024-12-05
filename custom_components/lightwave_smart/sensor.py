@@ -200,7 +200,7 @@ class LWRF2Sensor(SensorEntity):
     _attr_assumed_state = False
 
     def __init__(self, name, featureset_id, link, description, hass):
-        _LOGGER.debug("Adding sensor: %s - %s - %s ", name, description.key, featureset_id)
+        _LOGGER.debug(f"Adding sensor: {name} - {description.key} - {featureset_id}")
         self._featureset_id = featureset_id
         self._lwlink = link
 
@@ -209,22 +209,10 @@ class LWRF2Sensor(SensorEntity):
         
         self.entity_description = description
 
-        self._state = self._lwlink.featuresets[self._featureset_id].features[self.entity_description.key].state
-        if self._state is None:
-            _LOGGER.warning("LWRF2Sensor:__init__ - state is None for: %s - %s", self._featureset_id, self.entity_description.key)
-        else:
-            if self.entity_description.key == 'duskTime' or self.entity_description.key == 'dawnTime':
-                year = self._lwlink.featuresets[self._featureset_id].features['year'].state
-                month = self._lwlink.featuresets[self._featureset_id].features['month'].state
-                day = self._lwlink.featuresets[self._featureset_id].features['day'].state
-                hour = self._state // 3600
-                self._state = self._state - hour * 3600
-                min = self._state // 60
-                second = self._state - min * 60
-                self._state = dt_util.parse_datetime(f'{year}-{month:02}-{day:02}T{hour:02}:{min:02}:{second:02}Z')
-
         self._attr_unique_id = f"{self._featureset_id}_{self.entity_description.key}"
         self._attr_device_info = make_device_info(self, name)
+
+        self._set_state(None)
 
     async def async_added_to_hass(self):
         """Subscribe to events."""
@@ -233,32 +221,22 @@ class LWRF2Sensor(SensorEntity):
     @callback
     def async_update_callback(self, **kwargs):
         """Update the component's state."""
-        if kwargs["feature"] == "buttonPress":
-            _LOGGER.debug("Button (light) press event: %s %s", self.entity_id, kwargs["new_value"])
-            self.hass.bus.fire("lightwave_smart.click",{"entity_id": self.entity_id, "code": kwargs["new_value"]},
-        )
+        # async_update is called automatically
         self.async_schedule_update_ha_state(True)
 
     async def async_update(self):
         """Update state"""
-        self._state = self._lwlink.featuresets[self._featureset_id].features[self.entity_description.key].state
-        if self._state is None:
-            _LOGGER.warning("LWRF2Sensor:async_update - state is None for: %s - %s", self._featureset_id, self.entity_description.key)
+        state = self._lwlink.featuresets[self._featureset_id].features[self.entity_description.key].state
+        if state is None:
+            _LOGGER.debug(f"LWRF2Sensor:async_update - state is None for: {self._featureset_id} - {self.entity_description.key}")
+            pass
         else:
-            if self.entity_description.key == 'duskTime' or self.entity_description.key == 'dawnTime':
-                year = self._lwlink.featuresets[self._featureset_id].features['year'].state
-                month = self._lwlink.featuresets[self._featureset_id].features['month'].state
-                day = self._lwlink.featuresets[self._featureset_id].features['day'].state
-                hour = self._state // 3600
-                self._state = self._state - hour * 3600
-                min = self._state // 60
-                second = self._state - min * 60
-                self._state = dt_util.parse_datetime(f'{year}-{month:02}-{day:02}T{hour:02}:{min:02}:{second:02}Z')
+            self._set_state(state)
 
     @property
     def native_value(self):
         value = self._state
-        if self.entity_description.key == 'lightLevel':
+        if self.entity_description.key == 'lightLevel' and value is not None:
             # Very roughly adjust the given % to Lumens using 300 lux = 100%
             lux_level = (value / 100) * RECOMMENDED_LUX_LEVEL
             value = lux_level
@@ -270,6 +248,23 @@ class LWRF2Sensor(SensorEntity):
         """Return the optional state attributes."""
         return get_extra_state_attributes(self)
 
+    def _set_state(self, state):
+        self._state = state
+        
+        if self.entity_description.key == 'duskTime' or self.entity_description.key == 'dawnTime':
+            month = self._lwlink.featuresets[self._featureset_id].features['month'].state
+            year = self._lwlink.featuresets[self._featureset_id].features['year'].state
+            day = self._lwlink.featuresets[self._featureset_id].features['day'].state
+            
+            if month is None or year is None or day is None:
+                self._state = datetime.now(pytz.utc)
+            elif self._state is not None:
+                hour = self._state // 3600
+                self._state = self._state - hour * 3600
+                min = self._state // 60
+                second = self._state - min * 60
+                self._state = dt_util.parse_datetime(f'{year}-{month:02}-{day:02}T{hour:02}:{min:02}:{second:02}Z')
+        
 
 class LWRF2EventSensor(SensorEntity):
     """Representation of a LightwaveRF sensor."""
