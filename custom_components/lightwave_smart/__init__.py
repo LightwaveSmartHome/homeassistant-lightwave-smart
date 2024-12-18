@@ -12,6 +12,9 @@ from homeassistant.helpers import config_validation as cv
 
 _LOGGER = logging.getLogger(__name__)
 
+# Define supported platforms
+PLATFORMS = ["switch", "light", "climate", "cover", "binary_sensor", "sensor", "lock", "event", "update"]
+
 CONFIG_SCHEMA = vol.Schema(
     {
         DOMAIN: vol.Schema({
@@ -42,8 +45,12 @@ async def async_setup(hass, config):
         _LOGGER.debug("Received service call reconnect")
         for entry_id in hass.data[DOMAIN]:
             link = hass.data[DOMAIN][entry_id][LIGHTWAVE_LINK2]
-            if link._websocket is not None:
-                await link._websocket.close()
+            try:
+                # Close the existing WebSocket connection if it exists
+                if link._ws and link._ws._websocket is not None:
+                    await link._ws._websocket.close()
+            except Exception as e:
+                _LOGGER.error("Error closing WebSocket: %s", e)
 
     async def service_handle_update_states(call):
         _LOGGER.debug("Received service call update states")
@@ -92,8 +99,6 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
     hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_ENTITIES] = []
     if not publicapi:
         url = None
-        # _LOGGER.debug("Register central callback")
-        # await link.async_register_callback(async_central_callback)
     else:
         webhook_id = hass.components.webhook.async_generate_id()
         hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_WEBHOOKID] = webhook_id
@@ -102,7 +107,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
             'lightwave_smart', 'Lightwave webhook', webhook_id, handle_webhook)
         url = hass.components.webhook.async_generate_url(webhook_id)
         _LOGGER.debug("Webhook URL: %s ", url)
-        await link.async_register_webhook_all(url, LIGHTWAVE_WEBHOOK, overwrite = True)
+        await link.async_register_webhook_all(url, LIGHTWAVE_WEBHOOK, overwrite=True)
 
     hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_WEBHOOK] = url
 
@@ -111,10 +116,10 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
     for featureset_id, hubname in link.get_hubs():
         device_registry.async_get_or_create(
             config_entry_id=config_entry.entry_id,
-            configuration_url = "https://my.lightwaverf.com/a/login",
+            configuration_url="https://my.lightwaverf.com/a/login",
             entry_type=dr.DeviceEntryType.SERVICE,
             identifiers={(DOMAIN, featureset_id)},
-            manufacturer= "Lightwave RF",
+            manufacturer="Lightwave RF",
             name=hubname,
             model=link.featuresets[featureset_id].product_code
         )
@@ -139,34 +144,18 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
         _LOGGER.debug("Entity registry item %s", entity_entry)
         _LOGGER.debug("Entity gen2 %s", entity_registry.async_get(entity_entry.entity_id))
 
-    forward_setup = hass.config_entries.async_forward_entry_setup
-    hass.async_create_task(forward_setup(config_entry, "switch"))
-    hass.async_create_task(forward_setup(config_entry, "light"))
-    hass.async_create_task(forward_setup(config_entry, "climate"))
-    hass.async_create_task(forward_setup(config_entry, "cover"))
-    hass.async_create_task(forward_setup(config_entry, "binary_sensor"))
-    hass.async_create_task(forward_setup(config_entry, "sensor"))
-    hass.async_create_task(forward_setup(config_entry, "lock"))
-    hass.async_create_task(forward_setup(config_entry, "event"))
-    hass.async_create_task(forward_setup(config_entry, "update"))
-
+    await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
+    
     return True
 
 async def async_remove_entry(hass, config_entry):
     if LIGHTWAVE_WEBHOOK in hass.data[DOMAIN][config_entry.entry_id]:
         if hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_WEBHOOK] is not None:
             hass.components.webhook.async_unregister(hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_WEBHOOKID])
-    await hass.config_entries.async_forward_entry_unload(config_entry, "switch")
-    await hass.config_entries.async_forward_entry_unload(config_entry, "light")
-    await hass.config_entries.async_forward_entry_unload(config_entry, "climate")
-    await hass.config_entries.async_forward_entry_unload(config_entry, "cover")
-    await hass.config_entries.async_forward_entry_unload(config_entry, "binary_sensor")
-    await hass.config_entries.async_forward_entry_unload(config_entry, "sensor")
-    await hass.config_entries.async_forward_entry_unload(config_entry, "lock")
-    await hass.config_entries.async_forward_entry_unload(config_entry, "event")
-    await hass.config_entries.async_forward_entry_unload(config_entry, "update")
+
+    for platform in PLATFORMS:
+        await hass.config_entries.async_forward_entry_unload(config_entry, platform)
 
 async def reload_lw(hass, config_entry):
-
     await async_remove_entry(hass, config_entry)
     await async_setup_entry(hass, config_entry)
