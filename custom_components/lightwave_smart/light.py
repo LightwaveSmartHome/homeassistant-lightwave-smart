@@ -12,6 +12,7 @@ from .utils import (
     make_device_info,
     get_extra_state_attributes
 )
+import voluptuous as vol
 
 
 DEPENDENCIES = ['lightwave_smart']
@@ -81,13 +82,20 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             
 
     async def service_handle_brightness(light, call):
-        _LOGGER.debug("Received service call set brightness %s", light._name)
+        _LOGGER.debug(f"Received service call set brightness - {light}")
+        
         brightness = int(round(call.data.get("brightness") / 255 * 100))
         feature_id = link.featuresets[light._featureset_id].features['dimLevel'].id
         await link.async_write_feature(feature_id, brightness)
 
     platform = entity_platform.async_get_current_platform()
-    platform.async_register_entity_service(SERVICE_SETBRIGHTNESS, None, service_handle_brightness, )
+    platform.async_register_entity_service(
+        SERVICE_SETBRIGHTNESS, 
+        {
+            vol.Required(ATTR_BRIGHTNESS): vol.All(vol.Coerce(int), vol.Range(min=0, max=255)),
+        }, 
+        service_handle_brightness, 
+    )
 
     hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_ENTITIES].extend(lights)
     async_add_entities(lights)
