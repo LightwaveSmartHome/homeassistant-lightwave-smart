@@ -24,7 +24,7 @@ This component is *not yet* available directly through the Home Assistant Commun
 
 However using HACS it can be installed via "Custom repositories" using the repository url (https://github.com/LightwaveSmartHome/homeassistant-lightwave-smart), setting Category "Integration" - see:
 
-![image](https://github.com/LightwaveSmartHome/homeassistant-lightwave-smart/assets/5161291/a6488965-29ac-48a3-b867-723885f08a74)
+![image](https://lightwave-public-files.s3.eu-west-1.amazonaws.com/home-assistant/LightwaveSmartHomehomeassistant-lightwave-smart.png)
 
 If you use this method, your component will always update to the latest version. But you'll need to set up HACS first.
 
@@ -67,7 +67,7 @@ Example of how this can be used in an Entity automation:
 
 A gang of an L42 named "Lounge Xmas", will appear as an entity called "Lounge Xmas Smart Switch", which is then used with the condition that the Event type is "Short.2" (the action can be anything)
 
-![image](https://github.com/LightwaveSmartHome/homeassistant-lightwave-smart/assets/5161291/d75cea31-8064-483f-a43d-8ef40bef02ee)
+![image](https://lightwave-public-files.s3.eu-west-1.amazonaws.com/home-assistant/LightwaveSmartHomehomeassistant-lightwave-smart-2.png)
 
 
 ### lightwave_smart.click events (legacy)
