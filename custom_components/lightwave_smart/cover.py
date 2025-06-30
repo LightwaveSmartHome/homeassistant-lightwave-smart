@@ -12,7 +12,7 @@ except ImportError:
         SUPPORT_STOP)
 from homeassistant.core import callback
 from .utils import (
-    make_device_info,
+    make_entity_device_info,
     get_extra_state_attributes
 )
 
@@ -53,16 +53,16 @@ class LWRF2Cover(CoverEntity):
         self._featureset_id = featureset_id
         self._lwlink = link
 
-        for hub_featureset_id, hubname in self._lwlink.get_hubs():
-            self._linkid = hub_featureset_id
-
         self.entity_description = COVER
 
-        self._gen2 = self._lwlink.featuresets[self._featureset_id].is_gen2()
+        self._featureset = self._lwlink.featuresets[self._featureset_id]
+        self._device = self._featureset.device
+
+        self._gen2 = self._featureset.is_gen2()
         self._attr_assumed_state = not self._gen2
 
         self._attr_unique_id = f"{self._featureset_id}_{self.entity_description.key}"
-        self._attr_device_info = make_device_info(self, name)
+        self._attr_device_info = make_entity_device_info(self)
 
         
         self._state = 50

@@ -12,9 +12,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .utils import (
-    make_device_info_V2,
-    make_device_info,
-    get_extra_state_attributes
+    make_device_info
 )
 
 DEPENDENCIES = ['lightwave_smart']
@@ -58,16 +56,17 @@ class LWRF2Update(UpdateEntity):
 
         self.entity_description = entity_description
 
+        self._device = self._lwlink.devices[self._device_id]
+        
         self._homekit = homekit
 
         self._attr_unique_id = f"{self._device_id}_{self.entity_description.key}"
-        self.device = self._lwlink.devices[self._device_id]
-        self._attr_device_info = make_device_info_V2(self)
+        self._attr_device_info = make_device_info(self)
         
-        self.installed_version = self.device.firmware_version
+        self.installed_version = self._device.firmware_version
         
-        self.latest_version = self.device.latest_firmware_version
-        self.release_summary = self.device.latest_firmware_release_summary
+        self.latest_version = self._device.latest_firmware_version
+        self.release_summary = self._device.latest_firmware_release_summary
         
         self.in_progress = False
 
@@ -91,8 +90,8 @@ class LWRF2Update(UpdateEntity):
         """Update the component's state."""
         _LOGGER.debug(f"async_update_callback - Update update: {self.entity_id} - {self.entity_description.key} - {kwargs}")
         try:
-            self.latest_version = self.device.latest_firmware_version
-            self.release_summary = self.device.latest_firmware_release_summary
+            self.latest_version = self._device.latest_firmware_version
+            self.release_summary = self._device.latest_firmware_release_summary
             self.async_schedule_update_ha_state(True)
         except Exception as e: 
             _LOGGER.warning(f"async_update_callback - error - {self.entity_id} - {e}")
@@ -117,5 +116,5 @@ class LWRF2Update(UpdateEntity):
         """
         _LOGGER.debug(f"async_install - {self.entity_id} - {version} - {backup}")
         
-        self.in_progress = await self.device.update_firmware(version or self.latest_version)
+        self.in_progress = await self._device.update_firmware(version or self.latest_version)
         

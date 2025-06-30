@@ -36,7 +36,7 @@ except ImportError:
     from homeassistant.const import TEMP_CELSIUS, TEMP_FAHRENHEIT
 from homeassistant.core import callback
 from .utils import (
-    make_device_info,
+    make_entity_device_info,
     get_extra_state_attributes
 )
 
@@ -78,19 +78,19 @@ class LWRF2Climate(ClimateEntity):
         self._featureset_id = featureset_id
         self._lwlink = link
 
-        for hub_featureset_id, hubname in self._lwlink.get_hubs():
-            self._linkid = hub_featureset_id
-
         self.entity_description = CLIMATE
 
-        self._gen2 = self._lwlink.featuresets[self._featureset_id].is_gen2()
+        self._featureset = self._lwlink.featuresets[self._featureset_id]
+        self._device = self._featureset.device
+
+        self._gen2 = self._featureset.is_gen2()
         self._attr_assumed_state = not self._gen2
 
         self._attr_unique_id = f"{self._featureset_id}_{self.entity_description.key}"
-        self._attr_device_info = make_device_info(self, name)
+        self._attr_device_info = make_entity_device_info(self)
 
-        self._trv = self._lwlink.featuresets[self._featureset_id].is_trv()
-        self._has_humidity = 'targetHumidity' in self._lwlink.featuresets[self._featureset_id].features.keys()
+        self._trv = self._featureset.is_trv()
+        self._has_humidity = 'targetHumidity' in self._featureset.features.keys()
 
         # Define supported features
         self._support_flags = SUPPORT_TARGET_TEMPERATURE
@@ -100,40 +100,40 @@ class LWRF2Climate(ClimateEntity):
             self._support_flags |= SUPPORT_PRESET_MODE
         self._support_flags |= ClimateEntityFeature.TURN_ON | ClimateEntityFeature.TURN_OFF
 
-        if 'heatState' in self._lwlink.featuresets[self._featureset_id].features.keys():
+        if 'heatState' in self._featureset.features.keys():
             self._thermostat = False
         else:
             self._thermostat = True
 
         self._valve_level = 100
-        if 'valveLevel' in self._lwlink.featuresets[self._featureset_id].features.keys():
-            self._valve_level = self._lwlink.featuresets[self._featureset_id].features["valveLevel"].state
+        if 'valveLevel' in self._featureset.features.keys():
+            self._valve_level = self._featureset.features["valveLevel"].state
         elif self._thermostat:
-            if "callForHeat" in self._lwlink.featuresets[self._featureset_id].features:
-                if self._lwlink.featuresets[self._featureset_id].features["callForHeat"].state is None:
+            if "callForHeat" in self._featureset.features:
+                if self._featureset.features["callForHeat"].state is None:
                     self._valve_level = 0
                 else:
-                    self._valve_level = self._lwlink.featuresets[self._featureset_id].features["callForHeat"].state * 100
+                    self._valve_level = self._featureset.features["callForHeat"].state * 100
 
         if self._thermostat:
             self._onoff = 1
         else:
-            self._onoff = self._lwlink.featuresets[self._featureset_id].features["heatState"].state
+            self._onoff = self._featureset.features["heatState"].state
 
-        if self._lwlink.featuresets[self._featureset_id].features["temperature"].state is None:
+        if self._featureset.features["temperature"].state is None:
             self._temperature = None
         else:
-            self._temperature = self._lwlink.featuresets[self._featureset_id].features["temperature"].state / 10
+            self._temperature = self._featureset.features["temperature"].state / 10
 
-        self._target_temperature = self._lwlink.featuresets[self._featureset_id].features["targetTemperature"].state
+        self._target_temperature = self._featureset.features["targetTemperature"].state
         self._target_temperature = self._target_temperature / 10 if self._target_temperature is not None else None
 
         self._last_tt = self._target_temperature  # Used to store the target temperature to revert to after boosting
         self._temperature_scale = TEMP_CELSIUS
 
         if self._has_humidity:
-            self._humidity = self._lwlink.featuresets[self._featureset_id].features["humidity"].state
-            self._target_humidity = self._lwlink.featuresets[self._featureset_id].features["targetHumidity"].state
+            self._humidity = self._featureset.features["humidity"].state
+            self._target_humidity = self._featureset.features["targetHumidity"].state
 
         if self._valve_level == 100 and (self._target_temperature is None or self._target_temperature < 40):
             self._preset_mode = "Auto"
@@ -229,11 +229,11 @@ class LWRF2Climate(ClimateEntity):
             self._featureset_id, self._target_temperature)
 
     async def async_set_humidity(self, humidity):
-        feature_id = self._lwlink.featuresets[self._featureset_id].features['targetHumidity'].id
+        feature_id = self._featureset.features['targetHumidity'].id
         await self._lwlink.async_write_feature(feature_id, humidity)
 
     async def async_set_hvac_mode(self, hvac_mode):
-        feature_id = self._lwlink.featuresets[self._featureset_id].features['heatState'].id
+        feature_id = self._featureset.features['heatState'].id
         _LOGGER.debug("Received mode set request: %s ", hvac_mode)
         _LOGGER.debug("Setting feature ID: %s ", feature_id)
         if hvac_mode == HVAC_MODE_OFF:
@@ -244,26 +244,26 @@ class LWRF2Climate(ClimateEntity):
     async def async_update(self):
         """Update state"""
         self._valve_level = 100
-        if 'valveLevel' in self._lwlink.featuresets[self._featureset_id].features.keys():
-            self._valve_level = self._lwlink.featuresets[self._featureset_id].features["valveLevel"].state
+        if 'valveLevel' in self._featureset.features.keys():
+            self._valve_level = self._featureset.features["valveLevel"].state
         elif self._thermostat:
-            if "callForHeat" in self._lwlink.featuresets[self._featureset_id].features:
-                if self._lwlink.featuresets[self._featureset_id].features["callForHeat"].state is None:
+            if "callForHeat" in self._featureset.features:
+                if self._featureset.features["callForHeat"].state is None:
                     self._valve_level = 0
                 else:    
                     self._valve_level = \
-                        self._lwlink.featuresets[self._featureset_id].features["callForHeat"].state * 100
+                        self._featureset.features["callForHeat"].state * 100
 
         if self._thermostat:
             self._onoff = 1
         else:
             self._onoff = \
-                self._lwlink.featuresets[self._featureset_id].features["heatState"].state
+                self._featureset.features["heatState"].state
                     
-        if self._lwlink.featuresets[self._featureset_id].features["temperature"].state is not None:
-            self._temperature = self._lwlink.featuresets[self._featureset_id].features["temperature"].state / 10
+        if self._featureset.features["temperature"].state is not None:
+            self._temperature = self._featureset.features["temperature"].state / 10
             
-        self._target_temperature = self._lwlink.featuresets[self._featureset_id].features["targetTemperature"].state
+        self._target_temperature = self._featureset.features["targetTemperature"].state
         self._target_temperature = self._target_temperature / 10 if self._target_temperature is not None else None
         
         if self._valve_level == 100 and (self._target_temperature is None or self._target_temperature < 40):
@@ -272,9 +272,9 @@ class LWRF2Climate(ClimateEntity):
 
         if self._has_humidity:
             self._humidity = \
-                self._lwlink.featuresets[self._featureset_id].features["humidity"].state
+                self._featureset.features["humidity"].state
             self._target_humidity = \
-                self._lwlink.featuresets[self._featureset_id].features["targetHumidity"].state
+                self._featureset.features["targetHumidity"].state
 
         elif self._valve_level == 100:
             self._preset_mode = "100%"
@@ -301,7 +301,7 @@ class LWRF2Climate(ClimateEntity):
             await self._lwlink.async_set_temperature_by_featureset_id(
                 self._featureset_id, self._target_temperature)
         else:
-            feature_id = self._lwlink.featuresets[self._featureset_id].features['valveLevel'].id
+            feature_id = self._featureset.features['valveLevel'].id
             _LOGGER.debug("Received preset set request: %s ", preset_mode)
             _LOGGER.debug("Setting feature ID: %s ", feature_id)
             await self._lwlink.async_write_feature(feature_id, PRESET_NAMES[preset_mode])

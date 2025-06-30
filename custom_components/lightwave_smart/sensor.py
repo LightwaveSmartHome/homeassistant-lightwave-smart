@@ -48,7 +48,7 @@ from homeassistant.exceptions import ConfigEntryNotReady
 from datetime import datetime
 import pytz
 from .utils import (
-    make_device_info,
+    make_entity_device_info,
     get_extra_state_attributes
 )
 
@@ -204,13 +204,13 @@ class LWRF2Sensor(SensorEntity):
         self._featureset_id = featureset_id
         self._lwlink = link
 
-        for hub_featureset_id, hubname in self._lwlink.get_hubs():
-            self._linkid = hub_featureset_id
-        
         self.entity_description = description
+        
+        self._featureset = self._lwlink.featuresets[self._featureset_id]
+        self._device = self._featureset.device
 
         self._attr_unique_id = f"{self._featureset_id}_{self.entity_description.key}"
-        self._attr_device_info = make_device_info(self, name)
+        self._attr_device_info = make_entity_device_info(self)
 
         self._set_state(None)
 
@@ -226,7 +226,7 @@ class LWRF2Sensor(SensorEntity):
 
     async def async_update(self):
         """Update state"""
-        state = self._lwlink.featuresets[self._featureset_id].features[self.entity_description.key].state
+        state = self._featureset.features[self.entity_description.key].state
         if state is None:
             _LOGGER.debug(f"LWRF2Sensor:async_update - state is None for: {self._featureset_id} - {self.entity_description.key}")
             pass
@@ -252,9 +252,9 @@ class LWRF2Sensor(SensorEntity):
         self._state = state
         
         if self.entity_description.key == 'duskTime' or self.entity_description.key == 'dawnTime':
-            month = self._lwlink.featuresets[self._featureset_id].features['month'].state
-            year = self._lwlink.featuresets[self._featureset_id].features['year'].state
-            day = self._lwlink.featuresets[self._featureset_id].features['day'].state
+            month = self._featureset.features['month'].state
+            year = self._featureset.features['year'].state
+            day = self._featureset.features['day'].state
             
             if month is None or year is None or day is None:
                 self._state = datetime.now(pytz.utc)
@@ -277,14 +277,16 @@ class LWRF2EventSensor(SensorEntity):
         _LOGGER.debug("Adding event sensor: %s - %s - %s ", name, description.key, featureset_id)
         self._featureset_id = featureset_id
         self._lwlink = link
-        self._linkid = featureset_id
-        
+
         self.entity_description = description
+
+        self._featureset = self._lwlink.featuresets[self._featureset_id]
+        self._device = self._featureset.device
 
         self._state = datetime.now(pytz.utc)
 
         self._attr_unique_id = f"{self._featureset_id}_{self.entity_description.key}"
-        self._attr_device_info = make_device_info(self, name)
+        self._attr_device_info = make_entity_device_info(self)
 
     async def async_added_to_hass(self):
         """Subscribe to events."""

@@ -9,7 +9,7 @@ from homeassistant.core import callback
 from homeassistant.helpers import entity_platform, entity_registry as er
 from homeassistant.helpers.entity import EntityCategory
 from .utils import (
-    make_device_info,
+    make_entity_device_info,
     get_extra_state_attributes
 )
 import voluptuous as vol
@@ -85,7 +85,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         _LOGGER.debug(f"Received service call set brightness - {light}")
         
         brightness = int(round(call.data.get("brightness") / 255 * 100))
-        feature_id = link.featuresets[light._featureset_id].features['dimLevel'].id
+        feature_id = light._featureset.features['dimLevel'].id
         await link.async_write_feature(feature_id, brightness)
 
     platform = entity_platform.async_get_current_platform()
@@ -111,27 +111,27 @@ class LWRF2Light(LightEntity):
         self._featureset_id = featureset_id
         self._lwlink = link
 
-        for hub_featureset_id, hubname in self._lwlink.get_hubs():
-            self._linkid = hub_featureset_id
-
         self.entity_description = LIGHT
+        
+        self._featureset = self._lwlink.featuresets[self._featureset_id]
+        self._device = self._featureset.device
 
         self._homekit = homekit
 
-        self._gen2 = self._lwlink.featuresets[self._featureset_id].is_gen2()
+        self._gen2 = self._featureset.is_gen2()
         self._attr_assumed_state = not self._gen2
 
         self._attr_unique_id = f"{self._featureset_id}_{self.entity_description.key}"
-        self._attr_device_info = make_device_info(self, name)
+        self._attr_device_info = make_entity_device_info(self)
 
 
         self._state = \
-            self._lwlink.featuresets[self._featureset_id].features["switch"].state
+            self._featureset.features["switch"].state
         
-        dimLevel = self._lwlink.featuresets[self._featureset_id].features["dimLevel"].state
+        dimLevel = self._featureset.features["dimLevel"].state
         self._brightness = int(round(dimLevel / 100 * 255)) if dimLevel is not None else None
         
-        self._has_led = self._lwlink.featuresets[self._featureset_id].has_led()
+        self._has_led = self._featureset.has_led()
         
 
     async def async_added_to_hass(self):
@@ -172,8 +172,8 @@ class LWRF2Light(LightEntity):
     async def async_update(self):
         """Update state"""
         self._state = \
-            self._lwlink.featuresets[self._featureset_id].features["switch"].state
-        dimLevel = self._lwlink.featuresets[self._featureset_id].features["dimLevel"].state
+            self._featureset.features["switch"].state
+        dimLevel = self._featureset.features["dimLevel"].state
         self._brightness = int(round(dimLevel / 100 * 255)) if dimLevel is not None else None
 
     @property
@@ -229,22 +229,23 @@ class LWRF2LED(LightEntity):
         self._featureset_id = featureset_id
         self._lwlink = link
 
-        for hub_featureset_id, hubname in self._lwlink.get_hubs():
-            self._linkid = hub_featureset_id
-
         self.entity_description = description
+        
+        self._featureset = self._lwlink.featuresets[self._featureset_id]
+        self._device = self._featureset.device
 
-        self._gen2 = self._lwlink.featuresets[self._featureset_id].is_gen2()
+        self._gen2 = self._featureset.is_gen2()
         self._attr_assumed_state = not self._gen2
 
         self._attr_unique_id = f"{self._featureset_id}_{self.entity_description.key}"
-        self._attr_device_info = make_device_info(self, name)
+        
+        self._attr_device_info = make_entity_device_info(self)
         
         self.feature_type = feature_type
 
         # feature_type uiIndicator is not readable from Link (though server may have cache), events are generated when its changed
         color = \
-            self._lwlink.featuresets[self._featureset_id].features[self.feature_type].state
+            self._featureset.features[self.feature_type].state
         if color == 0 or not color:
             self._state = False
             self._r = 255
@@ -287,7 +288,7 @@ class LWRF2LED(LightEntity):
     async def async_update(self):
         """Update state"""
         color = \
-            self._lwlink.featuresets[self._featureset_id].features[self.feature_type].state
+            self._featureset.features[self.feature_type].state
         
         if color == 0 or not color:
             self._state = False
@@ -331,7 +332,7 @@ class LWRF2LED(LightEntity):
         g = int(self._g * self._brightness /255)
         b = int(self._b * self._brightness /255)
         rgb = r * 65536 + g * 256 + b
-
+        
         await self._lwlink.async_set_led_rgb_by_featureset_id(self._featureset_id, rgb, self.feature_type)
 
         self.async_schedule_update_ha_state()

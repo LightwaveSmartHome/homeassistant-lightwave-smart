@@ -4,7 +4,7 @@ from homeassistant.components.lock import LockEntity, LockEntityDescription, Loc
 from homeassistant.core import callback
 from homeassistant.helpers.entity import EntityCategory
 from .utils import (
-    make_device_info,
+    make_entity_device_info,
     get_extra_state_attributes
 )
 
@@ -42,19 +42,19 @@ class LWRF2Lock(LockEntity):
         self._featureset_id = featureset_id
         self._lwlink = link
 
-        for hub_featureset_id, hubname in self._lwlink.get_hubs():
-            self._linkid = hub_featureset_id
-
         self.entity_description = description
 
-        self._state = \
-            self._lwlink.featuresets[self._featureset_id].features["protection"].state
+        self._featureset = self._lwlink.featuresets[self._featureset_id]
+        self._device = self._featureset.device
 
-        self._gen2 = self._lwlink.featuresets[self._featureset_id].is_gen2()
+        self._state = \
+            self._featureset.features["protection"].state
+
+        self._gen2 = self._featureset.is_gen2()
         self._attr_assumed_state = not self._gen2
 
         self._attr_unique_id = f"{self._featureset_id}_{self.entity_description.key}"
-        self._attr_device_info = make_device_info(self, name)
+        self._attr_device_info = make_entity_device_info(self)
 
 
     async def async_added_to_hass(self):
@@ -71,7 +71,7 @@ class LWRF2Lock(LockEntity):
     async def async_update(self):
         """Update state"""
         self._state = \
-            self._lwlink.featuresets[self._featureset_id].features["protection"].state
+            self._featureset.features["protection"].state
 
     @property
     def is_locked(self):
@@ -83,7 +83,7 @@ class LWRF2Lock(LockEntity):
         _LOGGER.debug("HA lock.lock received, kwargs: %s", kwargs)
 
         self._state = 1
-        feature_id = self._lwlink.featuresets[self._featureset_id].features['protection'].id
+        feature_id = self._featureset.features['protection'].id
         await self._lwlink.async_write_feature(feature_id, 1)
 
         self.async_schedule_update_ha_state()
@@ -93,7 +93,7 @@ class LWRF2Lock(LockEntity):
         _LOGGER.debug("HA lock.unlock received, kwargs: %s", kwargs)
 
         self._state = 0
-        feature_id = self._lwlink.featuresets[self._featureset_id].features['protection'].id
+        feature_id = self._featureset.features['protection'].id
         await self._lwlink.async_write_feature(feature_id, 0)
 
         self.async_schedule_update_ha_state()

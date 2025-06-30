@@ -13,7 +13,7 @@ from homeassistant.core import callback
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers import entity_registry as er
 from .utils import (
-    make_device_info,
+    make_entity_device_info,
     get_extra_state_attributes
 )
 
@@ -72,23 +72,24 @@ class LWRF2BinarySensor(BinarySensorEntity):
         self._featureset_id = featureset_id
         self._lwlink = link
 
-        for hub_featureset_id, hubname in link.get_hubs():
-            self._linkid = hub_featureset_id
-
         self.entity_description = description
+        
+        self._featureset = self._lwlink.featuresets[self._featureset_id]
+        self._device = self._featureset.device
 
         self._homekit = homekit
 
-        self._gen2 = self._lwlink.featuresets[self._featureset_id].is_gen2()
+        self._gen2 = self._featureset.is_gen2()
         self._attr_assumed_state = not self._gen2
 
         self._attr_name = self.entity_description.name
 
         self._attr_unique_id = f"{self._featureset_id}_{self.entity_description.key}"
-        self._attr_device_info = make_device_info(self, name)
-
+        
+        self._attr_device_info = make_entity_device_info(self)
+        
         self._state = \
-            self._lwlink.featuresets[self._featureset_id].features[self.entity_description.key].state
+            self._featureset.features[self.entity_description.key].state
 
 
     async def async_added_to_hass(self):
@@ -104,7 +105,7 @@ class LWRF2BinarySensor(BinarySensorEntity):
         else:
             if entity_entry.hidden_by == er.RegistryEntryHider.INTEGRATION:
                 registry.async_update_entity(self.entity_id, hidden_by=None)
-    
+                
     @callback
     def async_update_callback(self, **kwargs):
         """Update the component's state."""
@@ -113,7 +114,7 @@ class LWRF2BinarySensor(BinarySensorEntity):
     async def async_update(self):
         """Update state"""
         self._state = \
-            self._lwlink.featuresets[self._featureset_id].features[self.entity_description.key].state
+            self._featureset.features[self.entity_description.key].state
 
     @property
     def is_on(self):
