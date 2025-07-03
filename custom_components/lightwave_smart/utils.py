@@ -20,7 +20,7 @@ def make_device_info(entity, name = None):
 def make_entity_device_info(entity):
     return DeviceInfo({
         "identifiers": { (DOMAIN, entity._featureset_id) },
-        "via_device": (DOMAIN, entity._device),
+        "via_device": (DOMAIN, entity._device.device_id),
     })
 
 def get_extra_state_attributes(entity):

@@ -60,8 +60,10 @@ class LWRF2Update(UpdateEntity):
         
         self._homekit = homekit
 
-        self._attr_unique_id = f"{self._device_id}_{self.entity_description.key}"
-        self._attr_device_info = make_device_info(self)
+        self._attr_unique_id = f"{self._device_id}"
+        
+        name = self._device.name + " Firmware"
+        self._attr_device_info = make_device_info(self, name)
         
         self.installed_version = self._device.firmware_version
         
