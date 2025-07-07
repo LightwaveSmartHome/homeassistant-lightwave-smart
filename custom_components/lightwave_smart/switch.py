@@ -54,6 +54,7 @@ class LWRF2Switch(SwitchEntity):
 
     _attr_has_entity_name = True
     _attr_should_poll = False
+    _attr_assumed_state = False
 
     def __init__(self, name, featureset_id, link, homekit, description):
         _LOGGER.debug("Adding socket/switch: %s - %s - %s ", name, description.key, featureset_id)
@@ -72,7 +73,7 @@ class LWRF2Switch(SwitchEntity):
 
         self._attr_unique_id = f"{self._featureset_id}_{self.entity_description.key}"
         
-        self._attr_device_info = make_entity_device_info(self)
+        self._attr_device_info = make_entity_device_info(self, name)
 
         self._state = \
             self._featureset.features["switch"].state

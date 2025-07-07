@@ -2,7 +2,7 @@ import logging
 import voluptuous as vol
 
 from .const import DOMAIN, CONF_PUBLICAPI, LIGHTWAVE_LINK2, LIGHTWAVE_ENTITIES, \
-    LIGHTWAVE_WEBHOOK, LIGHTWAVE_WEBHOOKID, LIGHTWAVE_LINKID, SERVICE_RECONNECT, SERVICE_WHDELETE, SERVICE_UPDATE
+    LIGHTWAVE_WEBHOOK, LIGHTWAVE_WEBHOOKID, SERVICE_RECONNECT, SERVICE_WHDELETE, SERVICE_UPDATE
 from homeassistant.config_entries import ConfigEntry    
 from homeassistant.const import (CONF_USERNAME, CONF_PASSWORD)
 from homeassistant.core import HomeAssistant, ServiceCall
@@ -13,7 +13,8 @@ from homeassistant.helpers import config_validation as cv
 _LOGGER = logging.getLogger(__name__)
 
 # Define supported platforms
-PLATFORMS = ["switch", "light", "climate", "cover", "binary_sensor", "sensor", "lock", "event", "update"]
+PLATFORMS_FIRMWARE = ["update"]
+PLATFORMS = ["switch", "light", "climate", "cover", "binary_sensor", "sensor", "lock", "event"]
 
 CONFIG_SCHEMA = vol.Schema(
     {
@@ -114,6 +115,10 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
     device_registry = dr.async_get(hass)
     entity_registry = er.async_get(hass)
     for featureset_id, hubname in link.get_hubs():
+        structure_name = link.get_structure_name(featureset_id)
+        if structure_name is not None:
+            hubname = f"{hubname} {structure_name}"
+        
         device_registry.async_get_or_create(
             config_entry_id=config_entry.entry_id,
             configuration_url="https://my.lightwaverf.com/a/login",
@@ -123,7 +128,6 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
             name=hubname,
             model=link.featuresets[featureset_id].product_code
         )
-        hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_LINKID] = featureset_id
 
     # Ensure every device associated with this config entry still exists
     # otherwise remove the device (and thus entities).
@@ -144,6 +148,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
         _LOGGER.debug("Entity registry item %s", entity_entry)
         _LOGGER.debug("Entity gen2 %s", entity_registry.async_get(entity_entry.entity_id))
 
+    await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS_FIRMWARE)
     await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
     
     return True

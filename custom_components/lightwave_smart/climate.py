@@ -87,7 +87,7 @@ class LWRF2Climate(ClimateEntity):
         self._attr_assumed_state = not self._gen2
 
         self._attr_unique_id = f"{self._featureset_id}_{self.entity_description.key}"
-        self._attr_device_info = make_entity_device_info(self)
+        self._attr_device_info = make_entity_device_info(self, name)
 
         self._trv = self._featureset.is_trv()
         self._has_humidity = 'targetHumidity' in self._featureset.features.keys()

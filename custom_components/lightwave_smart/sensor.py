@@ -208,9 +208,12 @@ class LWRF2Sensor(SensorEntity):
         
         self._featureset = self._lwlink.featuresets[self._featureset_id]
         self._device = self._featureset.device
+        
+        self._gen2 = self._featureset.is_gen2()
+        self._attr_assumed_state = not self._gen2
 
         self._attr_unique_id = f"{self._featureset_id}_{self.entity_description.key}"
-        self._attr_device_info = make_entity_device_info(self)
+        self._attr_device_info = make_entity_device_info(self, name)
 
         self._set_state(None)
 
@@ -282,11 +285,14 @@ class LWRF2EventSensor(SensorEntity):
 
         self._featureset = self._lwlink.featuresets[self._featureset_id]
         self._device = self._featureset.device
+        
+        self._gen2 = self._featureset.is_gen2()
+        self._attr_assumed_state = not self._gen2
 
         self._state = datetime.now(pytz.utc)
 
         self._attr_unique_id = f"{self._featureset_id}_{self.entity_description.key}"
-        self._attr_device_info = make_entity_device_info(self)
+        self._attr_device_info = make_entity_device_info(self, name)
 
     async def async_added_to_hass(self):
         """Subscribe to events."""
