@@ -1,6 +1,6 @@
-# Beta - x
+# Beta - v3.5.37
 
-Latest beta has known issues please do not use.
+Please see the latest beta [v3.5.37](https://github.com/LightwaveSmartHome/homeassistant-lightwave-smart/releases/tag/v3.5.37-Beta)
 
 If you have questions or comments please see the [discussion](https://github.com/LightwaveSmartHome/homeassistant-lightwave-smart/discussions/23)
 
