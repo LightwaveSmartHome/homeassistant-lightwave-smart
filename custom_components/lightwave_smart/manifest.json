@@ -1,6 +1,6 @@
 {
   "domain": "lightwave_smart",
-  "name": "Lightwave Smart custom component",
+  "name": "Lightwave Smart",
   "codeowners": ["@ikb42"],
   "config_flow": true,
   "dependencies": [],

@@ -1,30 +1,46 @@
 {
     "config": {
-        "abort": {
-            "single_instance_allowed": "Only a single configuration of this component is allowed."
-        },
         "step": {
             "user": {
+                "title": "Lightwave Smart Configuration",
+                "description": "Enter your Lightwave credentials",
                 "data": {
-                    "username": "Username",
+                    "username": "Username (Email)",
                     "password": "Password"
-                },
-                "description": "Enter Lightwave username and password",
-                "title": "Lightwave Smart"
+                }
+            },
+            "reconfigure": {
+                "title": "Reconfigure Lightwave Smart",
+                "description": "Enter your updated Lightwave credentials",
+                "data": {
+                    "username": "Username (Email)",
+                    "password": "Password"
+                }
             }
+        },
+        "error": {
+            "cannot_connect": "Unable to connect to Lightwave service. Please check your internet connection and try again.",
+            "invalid_auth": "Invalid credentials. Please check your username and password.",
+            "unknown": "An unexpected error occurred. Please try again."
+        },
+        "abort": {
+            "already_configured": "This account is already configured.",
+            "reauth_successful": "Re-authentication was successful.",
+            "reconfigure_successful": "Reconfigure was successful."
         }
     },
     "options": {
         "step": {
             "user": {
+                "title": "Lightwave Smart Options",
+                "description": "Configure additional options for Lightwave Smart",
                 "data": {
-                    "lightwave_publicapi": "Use public API (experimental, turn off if you have issues)?",
-                    "lightwave_homekit": "Hide Homekit entities?"
+                    "lightwave_homekit": "Hide entities from HomeKit",
+                    "lightwave_publicapi": "Use Public API (Deprecated, will be removed in future)"
                 }
             }
         }
     },
-
     "services": {
         "set_brightness": {
             "name": "Set Brightness",
@@ -36,27 +52,27 @@
                 },
                 "brightness": {
                     "name": "Brightness",
-                    "description": "Brightness (0 to 255)"
+                    "description": "Brightness (0 to 100)"
                 }
             }
         },
         "reconnect": {
-            "name": "Force Reconnect",
-            "description": "Force a reconnect to the Lightwave servers (only for non-public API, has no effect on public API)"
-        },
-        "whdelete": {
-            "name": "Delete Webhook",
-            "description": "Delete a webhook registration (use this if you get 'Received message for unregistered webhook' log messages)",
-            "fields": {
-                "webhookid": {
-                    "description": "The ID of the webhook to delete",
-                    "name": "Webhook ID"
-                }
-            }
+            "name": "Reconnect",
+            "description": "Reconnect to Lightwave service"
         },
         "update_states": {
-            "name": "Force Update Device States",
-            "description": "Force read all device states"
+            "name": "Update States",
+            "description": "Update all entity states from Lightwave"
+        },
+        "delete_webhook": {
+            "name": "Delete Webhook",
+            "description": "Delete a webhook from Lightwave",
+            "fields": {
+                "webhookid": {
+                    "name": "Webhook ID",
+                    "description": "The ID of the webhook to delete"
+                }
+            }
         }
     }
 }
