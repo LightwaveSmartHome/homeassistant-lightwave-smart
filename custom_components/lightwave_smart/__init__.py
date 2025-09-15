@@ -86,17 +86,15 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
 
     publicapi = config_entry.options.get(CONF_PUBLICAPI, False)
     if publicapi:
-        _LOGGER.warning("Using Public API, this is experimental - if you have issues turn this off in the integration options")
+        _LOGGER.warning("Using Public API (deprecated, will be removed in future) - if you have issues turn this off in the integration options")
         link = lightwave_smart.LWLink2Public(email, password)
     else:
         link = lightwave_smart.LWLink2(email, password)
 
     try:
-        connected = await link.async_connect(max_tries=6, force_keep_alive_secs=0, source="hass")
+        connected = await link.async_connect(source="hass", connect_callback=link.async_get_hierarchy)
         if not connected:
             raise ConfigEntryAuthFailed("Failed to connect to Lightwave service. Please check your credentials.")
-        
-        await link.async_get_hierarchy()
     except Exception as e:
         _LOGGER.error("Error connecting to Lightwave: %s", e)
         raise ConfigEntryAuthFailed(f"Authentication failed: {str(e)}")
