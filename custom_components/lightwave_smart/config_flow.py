@@ -86,22 +86,19 @@ class lightwave_smartConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def _test_connection(self, username: str, password: str) -> None:
         """Test the connection to Lightwave."""
+        
+        link = None
         try:
             from lightwave_smart import lightwave_smart
             
-            # Test with regular API first
             link = lightwave_smart.LWLink2(username, password)
-            connected = await link.async_connect(max_tries=3, force_keep_alive_secs=0, source="hass_test")
             
+            connected = await link.async_activate(max_tries=3, force_keep_alive_secs=0, source="hass_test")
             if not connected:
                 raise InvalidAuth("Invalid credentials")
                 
             # Test getting hierarchy
             await link.async_get_hierarchy()
-            
-            # Close the test connection
-            if hasattr(link, '_ws') and link._ws and link._ws._websocket is not None:
-                await link._ws._websocket.close()
                 
         except Exception as e:
             _LOGGER.error("Connection test failed: %s", e)
@@ -109,6 +106,10 @@ class lightwave_smartConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 raise InvalidAuth("Invalid credentials") from e
             else:
                 raise CannotConnect("Cannot connect to Lightwave service") from e
+            
+        finally:
+            if link is not None:
+                await link.async_deactivate()
 
     @staticmethod
     @callback

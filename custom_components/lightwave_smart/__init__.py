@@ -47,11 +47,10 @@ async def async_setup(hass, config):
         for entry_id in hass.data[DOMAIN]:
             link = hass.data[DOMAIN][entry_id][LIGHTWAVE_LINK2]
             try:
-                # Close the existing WebSocket connection if it exists
-                if link._ws and link._ws._websocket is not None:
-                    await link._ws._websocket.close()
+                # Deactivate the Lightwave link
+                await link.async_deactivate()
             except Exception as e:
-                _LOGGER.error("Error closing WebSocket: %s", e)
+                _LOGGER.error("Error deactivating Lightwave link: %s", e)
 
     async def service_handle_update_states(call):
         _LOGGER.debug("Received service call update states")
@@ -92,7 +91,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
         link = lightwave_smart.LWLink2(email, password)
 
     try:
-        connected = await link.async_connect(source="hass", connect_callback=link.async_get_hierarchy)
+        connected = await link.async_activate(source="hass", connect_callback=link.async_get_hierarchy)
         if not connected:
             raise ConfigEntryAuthFailed("Failed to connect to Lightwave service. Please check your credentials.")
     except Exception as e:
@@ -182,9 +181,8 @@ async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> 
         if LIGHTWAVE_LINK2 in entry_data:
             link = entry_data[LIGHTWAVE_LINK2]
             try:
-                if hasattr(link, '_ws') and link._ws and link._ws._websocket is not None:
-                    await link._ws._websocket.close()
-                    _LOGGER.debug("Closed WebSocket connection")
+                await link.async_deactivate()
+                _LOGGER.debug("Deactivated Lightwave link")
             except Exception as e:
                 _LOGGER.error("Error closing WebSocket: %s", e)
         
