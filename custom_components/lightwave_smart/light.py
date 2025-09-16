@@ -17,7 +17,6 @@ import voluptuous as vol
 
 DEPENDENCIES = ['lightwave_smart']
 _LOGGER = logging.getLogger(__name__)
-_LOGGER.setLevel(logging.INFO)
 
 LIGHT = LightEntityDescription(
     key="smartLightSwitch",
@@ -334,8 +333,6 @@ class LWRF2LED(LightEntity):
         b = int(self._b * self._brightness /255)
         rgb = r * 65536 + g * 256 + b
         
-        _LOGGER.warning(f"Setting LED rgb to {rgb} for {self._featureset_id}")
-
         await self._lwlink.async_set_led_rgb_by_featureset_id(self._featureset_id, rgb, self.feature_type)
 
         self.async_schedule_update_ha_state()
