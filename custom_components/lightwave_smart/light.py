@@ -3,7 +3,7 @@ from .const import LIGHTWAVE_LINK2, LIGHTWAVE_ENTITIES, SERVICE_SETBRIGHTNESS, C
 from homeassistant.components.light import (
     LightEntity,
     LightEntityDescription,
-    ATTR_BRIGHTNESS, COLOR_MODE_BRIGHTNESS, COLOR_MODE_RGB
+    ATTR_BRIGHTNESS, ColorMode
 )
 from homeassistant.core import callback
 from homeassistant.helpers import entity_platform, entity_registry as er
@@ -17,6 +17,7 @@ import voluptuous as vol
 
 DEPENDENCIES = ['lightwave_smart']
 _LOGGER = logging.getLogger(__name__)
+_LOGGER.setLevel(logging.INFO)
 
 LIGHT = LightEntityDescription(
     key="smartLightSwitch",
@@ -162,12 +163,12 @@ class LWRF2Light(LightEntity):
     @property
     def supported_color_modes(self):
         """Flag supported features."""
-        return {COLOR_MODE_BRIGHTNESS}
+        return {ColorMode.BRIGHTNESS}
 
     @property
     def color_mode(self):
         """Flag supported features."""
-        return COLOR_MODE_BRIGHTNESS
+        return ColorMode.BRIGHTNESS
 
     async def async_update(self):
         """Update state"""
@@ -278,12 +279,12 @@ class LWRF2LED(LightEntity):
     @property
     def supported_color_modes(self):
         """Flag supported features."""
-        return {COLOR_MODE_RGB}
+        return {ColorMode.RGB}
 
     @property
     def color_mode(self):
         """Flag supported features."""
-        return COLOR_MODE_RGB
+        return ColorMode.RGB
 
     async def async_update(self):
         """Update state"""
@@ -333,6 +334,8 @@ class LWRF2LED(LightEntity):
         b = int(self._b * self._brightness /255)
         rgb = r * 65536 + g * 256 + b
         
+        _LOGGER.warning(f"Setting LED rgb to {rgb} for {self._featureset_id}")
+
         await self._lwlink.async_set_led_rgb_by_featureset_id(self._featureset_id, rgb, self.feature_type)
 
         self.async_schedule_update_ha_state()

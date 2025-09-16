@@ -3,7 +3,7 @@ import voluptuous as vol
 
 from .const import DOMAIN, CONF_PUBLICAPI, LIGHTWAVE_LINK2, LIGHTWAVE_ENTITIES, \
     LIGHTWAVE_WEBHOOK, LIGHTWAVE_WEBHOOKID, SERVICE_RECONNECT, SERVICE_WHDELETE, SERVICE_UPDATE
-from homeassistant.config_entries import ConfigEntry    
+from homeassistant.config_entries import ConfigEntry, ConfigEntryAuthFailed
 from homeassistant.const import (CONF_USERNAME, CONF_PASSWORD)
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import device_registry as dr
@@ -47,11 +47,10 @@ async def async_setup(hass, config):
         for entry_id in hass.data[DOMAIN]:
             link = hass.data[DOMAIN][entry_id][LIGHTWAVE_LINK2]
             try:
-                # Close the existing WebSocket connection if it exists
-                if link._ws and link._ws._websocket is not None:
-                    await link._ws._websocket.close()
+                # Deactivate the Lightwave link
+                await link.async_deactivate()
             except Exception as e:
-                _LOGGER.error("Error closing WebSocket: %s", e)
+                _LOGGER.error("Error deactivating Lightwave link: %s", e)
 
     async def service_handle_update_states(call):
         _LOGGER.debug("Received service call update states")
@@ -86,15 +85,18 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
 
     publicapi = config_entry.options.get(CONF_PUBLICAPI, False)
     if publicapi:
-        _LOGGER.warning("Using Public API, this is experimental - if you have issues turn this off in the integration options")
+        _LOGGER.warning("Using Public API (deprecated, will be removed in future) - if you have issues turn this off in the integration options")
         link = lightwave_smart.LWLink2Public(email, password)
     else:
         link = lightwave_smart.LWLink2(email, password)
 
-    connected = await link.async_connect(max_tries=6, force_keep_alive_secs=0, source="hass")
-    if not connected:
-        return False
-    await link.async_get_hierarchy()
+    try:
+        connected = await link.async_activate(source="hass", connect_callback=link.async_get_hierarchy)
+        if not connected:
+            raise ConfigEntryAuthFailed("Failed to connect to Lightwave service. Please check your credentials.")
+    except Exception as e:
+        _LOGGER.error("Error connecting to Lightwave: %s", e)
+        raise ConfigEntryAuthFailed(f"Authentication failed: {str(e)}")
 
     hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_LINK2] = link
     hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_ENTITIES] = []
@@ -124,7 +126,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
             configuration_url="https://my.lightwaverf.com/a/login",
             entry_type=dr.DeviceEntryType.SERVICE,
             identifiers={(DOMAIN, featureset_id)},
-            manufacturer="Lightwave RF",
+            manufacturer="Lightwave",
             name=hubname,
             model=link.featuresets[featureset_id].product_code
         )
@@ -153,14 +155,62 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
     
     return True
 
-async def async_remove_entry(hass, config_entry):
-    if LIGHTWAVE_WEBHOOK in hass.data[DOMAIN][config_entry.entry_id]:
-        if hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_WEBHOOK] is not None:
-            hass.components.webhook.async_unregister(hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_WEBHOOKID])
+async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
+    """Unload a config entry."""
+    _LOGGER.debug("Unloading config entry: %s", config_entry.entry_id)
+    
+    # Check if the config entry was actually loaded
+    if config_entry.entry_id not in hass.data.get(DOMAIN, {}):
+        _LOGGER.warning("Config entry %s was never loaded, skipping unload", config_entry.entry_id)
+        return True
+    
+    # Unload platforms
+    unload_ok = await hass.config_entries.async_unload_platforms(config_entry, PLATFORMS_FIRMWARE + PLATFORMS)
+    
+    # Clean up webhook if it exists
+    if config_entry.entry_id in hass.data.get(DOMAIN, {}):
+        entry_data = hass.data[DOMAIN][config_entry.entry_id]
+        if LIGHTWAVE_WEBHOOKID in entry_data and entry_data[LIGHTWAVE_WEBHOOKID] is not None:
+            try:
+                hass.components.webhook.async_unregister(entry_data[LIGHTWAVE_WEBHOOKID])
+                _LOGGER.debug("Unregistered webhook: %s", entry_data[LIGHTWAVE_WEBHOOKID])
+            except Exception as e:
+                _LOGGER.error("Error unregistering webhook: %s", e)
+        
+        # Clean up connection
+        if LIGHTWAVE_LINK2 in entry_data:
+            link = entry_data[LIGHTWAVE_LINK2]
+            try:
+                await link.async_deactivate()
+                _LOGGER.debug("Deactivated Lightwave link")
+            except Exception as e:
+                _LOGGER.error("Error closing WebSocket: %s", e)
+        
+        # Remove entry data
+        del hass.data[DOMAIN][config_entry.entry_id]
+    
+    if not unload_ok:
+        _LOGGER.error("Failed to unload platforms for config entry: %s", config_entry.entry_id)
+        return False
+    
+    _LOGGER.debug("Successfully unloaded config entry: %s", config_entry.entry_id)
+    return True
 
-    for platform in PLATFORMS:
-        await hass.config_entries.async_forward_entry_unload(config_entry, platform)
+async def async_remove_entry(hass, config_entry):
+    """Remove a config entry - this is called when the integration is removed."""
+    _LOGGER.debug("Removing config entry: %s", config_entry.entry_id)
+    
+    # Clean up webhook if it exists
+    if config_entry.entry_id in hass.data.get(DOMAIN, {}):
+        entry_data = hass.data[DOMAIN][config_entry.entry_id]
+        if LIGHTWAVE_WEBHOOKID in entry_data and entry_data[LIGHTWAVE_WEBHOOKID] is not None:
+            try:
+                hass.components.webhook.async_unregister(entry_data[LIGHTWAVE_WEBHOOKID])
+            except Exception as e:
+                _LOGGER.error("Error unregistering webhook during removal: %s", e)
 
 async def reload_lw(hass, config_entry):
-    await async_remove_entry(hass, config_entry)
+    """Reload the config entry."""
+    _LOGGER.debug("Reloading config entry: %s", config_entry.entry_id)
+    await async_unload_entry(hass, config_entry)
     await async_setup_entry(hass, config_entry)

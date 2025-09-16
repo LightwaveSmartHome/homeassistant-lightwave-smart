@@ -65,7 +65,6 @@ class LWRF2Update(UpdateEntity):
         # name = self._device.name + " Firmware"
         self._attr_device_info = make_device_info(self)
         
-        
         self.installed_version = self._device.firmware_version
         
         self.latest_version = self._device.latest_firmware_version
