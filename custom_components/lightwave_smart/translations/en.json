@@ -33,10 +33,10 @@
         "step": {
             "user": {
                 "title": "Lightwave Smart Options",
-                "description": "Configure additional options for Lightwave Smart",
+                "description": "Configure additional options",
                 "data": {
                     "lightwave_homekit": "Hide entities from HomeKit",
-                    "lightwave_publicapi": "Use Public API (Deprecated, will be removed in future)"
+                    "auth_method": "Authentication method"
                 }
             }
         }
@@ -64,15 +64,9 @@
             "name": "Update States",
             "description": "Update all entity states from Lightwave"
         },
-        "delete_webhook": {
-            "name": "Delete Webhook",
-            "description": "Delete a webhook from Lightwave",
-            "fields": {
-                "webhookid": {
-                    "name": "Webhook ID",
-                    "description": "The ID of the webhook to delete"
-                }
-            }
+        "reset_enabled_status_to_defaults": {
+            "name": "Reset Enabled Status to Defaults",
+            "description": "This will reset entities enabled statuses to defaults"
         }
     }
 }

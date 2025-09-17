@@ -1,5 +1,7 @@
 from .const import DOMAIN
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import storage
 
 def make_device_info(entity, name = None):
     device = entity._device
@@ -48,3 +50,21 @@ def get_extra_state_attributes(entity):
     for featurename, feature in feature_set.features.items():
         attribs['lwrf_' + featurename] = feature.state
     return attribs
+
+async def get_stored_tokens(hass: HomeAssistant, username: str) -> dict:
+    store = storage.Store(hass, 1, f"{DOMAIN}_{username}_tokens")
+    stored_tokens = await store.async_load()
+    return stored_tokens if stored_tokens else {}
+
+async def set_stored_tokens(hass: HomeAssistant, username: str, tokens: dict):
+    store = storage.Store(hass, 1, f"{DOMAIN}_{username}_tokens")
+    await store.async_save(tokens)
+    
+async def set_loaded_platforms(hass: HomeAssistant, username: str, platforms: list):
+    store = storage.Store(hass, 1, f"{DOMAIN}_{username}_loaded_platforms")
+    await store.async_save(platforms)
+    
+async def get_loaded_platforms(hass: HomeAssistant, username: str) -> list:
+    store = storage.Store(hass, 1, f"{DOMAIN}_{username}_loaded_platforms")
+    loaded_platforms = await store.async_load()
+    return loaded_platforms if loaded_platforms else []

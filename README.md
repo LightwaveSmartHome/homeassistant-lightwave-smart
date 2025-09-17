@@ -97,8 +97,7 @@ For sockets the codes are the "up button" versions.
 
 ### There are further service calls:
 
-`lightwave_smart.reconnect`: Force a reconnect to the Lightwave servers (only for non-public API, has no effect on public API)
-`lightwave_smart.whdelete`: Delete a webhook registration (use this if you get "Received message for unregistered webhook" log messages)
+`lightwave_smart.reconnect`: Force a reconnect to the Lightwave servers
 `lightwave_smart.update_states`: Force a read of all states of devices
 
 ## Thanks

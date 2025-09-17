@@ -10,5 +10,5 @@
   "issue_tracker": "https://github.com/LightwaveSmartHome/homeassistant-lightwave-smart/issues?q=is%3Aopen+is%3Aissue",
   "loggers": ["custom_components.lightwave_smart", "lightwave_smart"],
   "requirements": ["lightwave_smart==1.0.0"],
-  "version": "4.0.2"
+  "version": "5.0.0-Beta"
 }
