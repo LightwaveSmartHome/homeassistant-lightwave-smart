@@ -60,11 +60,3 @@ async def set_stored_tokens(hass: HomeAssistant, username: str, tokens: dict):
     store = storage.Store(hass, 1, f"{DOMAIN}_{username}_tokens")
     await store.async_save(tokens)
     
-async def set_loaded_platforms(hass: HomeAssistant, username: str, platforms: list):
-    store = storage.Store(hass, 1, f"{DOMAIN}_{username}_loaded_platforms")
-    await store.async_save(platforms)
-    
-async def get_loaded_platforms(hass: HomeAssistant, username: str) -> list:
-    store = storage.Store(hass, 1, f"{DOMAIN}_{username}_loaded_platforms")
-    loaded_platforms = await store.async_load()
-    return loaded_platforms if loaded_platforms else []

@@ -3,7 +3,7 @@
   "name": "Lightwave Smart",
   "codeowners": ["@ikb42"],
   "config_flow": true,
-  "dependencies": [],
+  "dependencies": ["application_credentials"],
   "documentation": "https://github.com/LightwaveSmartHome/homeassistant-lightwave-smart",
   "integration_type": "hub",
   "iot_class": "cloud_push",

@@ -2,16 +2,20 @@ import logging
 import voluptuous as vol
 import asyncio
 
-from .const import DOMAIN, LIGHTWAVE_LINK2, LIGHTWAVE_ENTITIES, \
+from .const import DOMAIN, LIGHTWAVE_LINK2, LIGHTWAVE_ENTITIES, LIGHTWAVE_PLATFORMS, \
     SERVICE_RECONNECT, SERVICE_UPDATE, CONF_AUTH_METHOD, CONF_API_KEY, \
     CONF_REFRESH_TOKEN, CONF_ACCESS_TOKEN, CONF_TOKEN_EXPIRY, SERVICE_RESET_ENABLED_STATUS_TO_DEFAULTS
 from homeassistant.config_entries import ConfigEntry, ConfigEntryAuthFailed
 from homeassistant.const import (CONF_USERNAME, CONF_PASSWORD, CONF_TOKEN)
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import device_registry as dr
-from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers import config_validation as cv
-from .utils import get_stored_tokens, set_stored_tokens, set_loaded_platforms, get_loaded_platforms
+from homeassistant.helpers import (
+    device_registry as dr,
+    entity_registry as er,
+    config_validation as cv,
+    config_entry_oauth2_flow,
+    aiohttp_client,
+)
+from .utils import get_stored_tokens, set_stored_tokens
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,7 +48,7 @@ async def async_setup(hass, config):
             link = hass.data[DOMAIN][entry_id][LIGHTWAVE_LINK2]
             try:
                 # Deactivate the Lightwave link
-                await link.async_deactivate()
+                await link.async_deactivate("service_handle_reconnect")
             except Exception as e:
                 _LOGGER.error("Error deactivating Lightwave link: %s", e)
 
@@ -121,7 +125,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
 
     hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_LINK2] = link
     hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_ENTITIES] = []
-    await set_loaded_platforms(hass=hass, username=config_entry.data[CONF_USERNAME], platforms=[])
+    hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_PLATFORMS] = []
 
     device_registry = dr.async_get(hass)
     entity_registry = er.async_get(hass)
@@ -142,22 +146,17 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
 
     remove_missing_devices_and_entities(config_entry, link, device_registry, entity_registry)
     
-    loaded_platforms = []
-    
     try:
         await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS_FIRMWARE)
-        loaded_platforms.extend(PLATFORMS_FIRMWARE)
+        hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_PLATFORMS].extend(PLATFORMS_FIRMWARE)
     except Exception as e:
         _LOGGER.warning("No firmware platforms loaded: %s", e)
     
     try:
         await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
-        loaded_platforms.extend(PLATFORMS)
+        hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_PLATFORMS].extend(PLATFORMS)
     except Exception as e:
         _LOGGER.warning("Some main platforms not loaded: %s", e)
-    
-    # Store the list of loaded platforms
-    await set_loaded_platforms(hass=hass, username=config_entry.data[CONF_USERNAME], platforms=loaded_platforms)
     
     return True
 
@@ -173,35 +172,31 @@ async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry, sou
     # await hass.config_entries.async_unload_platforms(config_entry, PLATFORMS_FIRMWARE)
     # await hass.config_entries.async_unload_platforms(config_entry, PLATFORMS)
         
-    # Get the list of platforms that were loaded
     entry_data = hass.data[DOMAIN][config_entry.entry_id]
-    loaded_platforms = await get_loaded_platforms(hass=hass, username=config_entry.data[CONF_USERNAME])
     
+    loaded_platforms = entry_data[LIGHTWAVE_PLATFORMS]
     if loaded_platforms:
         try:
             await hass.config_entries.async_unload_platforms(config_entry, loaded_platforms)
         except Exception as e:
             _LOGGER.warning(f"Error unloading platforms for config entry '{config_entry.entry_id}': {e}")
     else:
-        _LOGGER.debug(f"No platforms were loaded for config entry '{config_entry.entry_id}'")
+        _LOGGER.warning(f"No platforms were loaded for config entry '{config_entry.entry_id}'")
     
     # Clean up connection to Lightwave backend
-    if config_entry.entry_id in hass.data.get(DOMAIN, {}):
-        entry_data = hass.data[DOMAIN][config_entry.entry_id]
-        
-        if LIGHTWAVE_LINK2 in entry_data:
-            link = entry_data[LIGHTWAVE_LINK2]
-            try:
-                await link.async_deactivate()
-                _LOGGER.debug("Deactivated Lightwave link")
-            except Exception as e:
-                _LOGGER.error(f"Error deactivating Lightwave link: {e}")
-        
-        # Remove entry data from hass.data
+    if LIGHTWAVE_LINK2 in entry_data:
+        link = entry_data[LIGHTWAVE_LINK2]
+        try:
+            await link.async_deactivate("async_unload_entry")
+            _LOGGER.debug("Deactivated Lightwave link")
+        except Exception as e:
+            _LOGGER.error(f"Error deactivating Lightwave link: {e}")
+    
+    # Remove entry data from hass.data if still there
+    if config_entry.entry_id in hass.data[DOMAIN]:
         del hass.data[DOMAIN][config_entry.entry_id]
     
-    await set_loaded_platforms(hass=hass, username=config_entry.data[CONF_USERNAME], platforms=[])
-    _LOGGER.info(f"Successfully unloaded config entry: '{config_entry.entry_id}'")
+    _LOGGER.info(f"Successfully unloaded config entry: '{config_entry.entry_id}' - un-loaded_platforms: {len(loaded_platforms)}")
     return True
 
 async def async_remove_entry(hass, config_entry):
@@ -239,23 +234,37 @@ async def setup_link_lw(hass, config_entry):
     }
     _LOGGER.info(f"Setting up Lightwave link, config entry data: {log_data}")
     
-    def on_token_refresh(access_token, refresh_token, token_expiry):
-        _LOGGER.info("Updating tokens in storage")
-        asyncio.create_task(
-            set_stored_tokens(hass=hass, username=username, tokens={ 
-                CONF_ACCESS_TOKEN: access_token, 
-                CONF_REFRESH_TOKEN: refresh_token, 
-                CONF_TOKEN_EXPIRY: token_expiry 
-            })
+    if auth_method == "oauth":
+        from .auth import LightwaveSmartAuth
+        
+        implementation = (
+            await config_entry_oauth2_flow.async_get_config_entry_implementation(
+                hass, config_entry
+            )
         )
-    
-    link = lightwave_smart.LWLink2()
-    link.auth.set_token_refresh_callback(on_token_refresh)
-    
-    if auth_method == "password":
-        link.auth.set_auth_method(auth_method=auth_method, username=username, password=password)
+        session = config_entry_oauth2_flow.OAuth2Session(hass, config_entry, implementation)
+        
+        lightwaveSmartAuth = LightwaveSmartAuth(session)
+        link = lightwave_smart.LWLink2(auth=lightwaveSmartAuth)
+        
     else:
-        link.auth.set_auth_method(auth_method=auth_method, api_key=api_key, access_token=access_token, refresh_token=refresh_token, token_expiry=token_expiry)
+        def on_token_refresh(access_token, refresh_token, token_expiry):
+            _LOGGER.info("Updating tokens in storage")
+            asyncio.create_task(
+                set_stored_tokens(hass=hass, username=username, tokens={ 
+                    CONF_ACCESS_TOKEN: access_token, 
+                    CONF_REFRESH_TOKEN: refresh_token, 
+                    CONF_TOKEN_EXPIRY: token_expiry 
+                })
+            )
+            
+        link = lightwave_smart.LWLink2()
+        link.auth.set_token_refresh_callback(on_token_refresh)
+        
+        if auth_method == "password":
+            link.auth.set_auth_method(auth_method=auth_method, username=username, password=password)
+        else:
+            link.auth.set_auth_method(auth_method=auth_method, api_key=api_key, access_token=access_token, refresh_token=refresh_token, token_expiry=token_expiry)
 
     return link
 

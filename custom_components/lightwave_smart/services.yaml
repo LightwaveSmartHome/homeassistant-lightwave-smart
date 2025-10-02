@@ -7,12 +7,12 @@ set_brightness:
     brightness:
       name: Brightness
       required: true
-      description: Brightness (0 to 100)
-      example: 75
+      description: Brightness (0 to 255)
+      example: 242
       selector:
         number:
           min: 0
-          max: 100
+          max: 255
 
 reconnect:
   description: Force a reconnect to the Lightwave backend

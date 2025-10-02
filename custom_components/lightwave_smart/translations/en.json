@@ -1,32 +1,63 @@
 {
+    "title": "Lightwave Smart",
+    "common": {
+    },
     "config": {
         "step": {
-            "user": {
+            "pick_implementation": {
+                "title": "[%key:common::config_flow::title::oauth2_pick_implementation%]"
+            },
+        
+            "lightwave_auth_method": {
                 "title": "Lightwave Smart Configuration",
+                "description": "Choose your authentication method.\n\n**Note:** Both 'Refresh Token' and 'Password Authentication' require a password. 'Refresh Token' however does not store your password and is preferred over 'Password Authentication'",
+                "data": {
+                    "lightwave_auth_method": "Authentication method"
+                }
+            },
+            "user": {
+                "title": "Lightwave Smart - Password Authentication Configuration",
                 "description": "Enter your Lightwave credentials",
+                "data": {
+                    "username": "Username (Email)",
+                    "password": "Password",
+                    "instance_name": "Instance Name"
+                },
+                "data_description": {
+                    "username": "Username (Email)",
+                    "password": "Password",
+                    "instance_name": "Optional, your username will be used if not provided"
+                }
+            },
+            "reconfigure": {
+                "title": "Reconfigure Lightwave Smart - Password Authentication Configuration",
+                "description": "Enter your updated Lightwave credentials",
                 "data": {
                     "username": "Username (Email)",
                     "password": "Password"
                 }
             },
-            "reconfigure": {
-                "title": "Reconfigure Lightwave Smart",
-                "description": "Enter your updated Lightwave credentials",
+            "oauth_auth_method": {
+                "title": "Lightwave Smart - Account Linking Configuration",
+                "description": "You will be redirected to Lightwave to authorize the integration. Once authorized, you will be redirected back to Home Assistant to complete the setup.",
                 "data": {
-                    "username": "Username (Email)",
-                    "password": "Password"
+                },
+                "data_description": {
                 }
             }
         },
         "error": {
             "cannot_connect": "Unable to connect to Lightwave service. Please check your internet connection and try again.",
             "invalid_auth": "Invalid credentials. Please check your username and password.",
+            "invalid_auth_method": "Invalid authentication method. Please select a valid authentication method.",
             "unknown": "An unexpected error occurred. Please try again."
         },
         "abort": {
             "already_configured": "This account is already configured.",
             "reauth_successful": "Re-authentication was successful.",
-            "reconfigure_successful": "Reconfigure was successful."
+            "reconfigure_successful": "Reconfigure was successful.",
+            "unique_id_mismatch": "A different username was given, the original username is required. Please enter the original username or delete the integration and try again.",
+            "single_instance_allowed": "Only one instance of the Lightwave Smart integration is allowed.\nPlease raise an issue if more than one is required."
         }
     },
     "options": {
@@ -36,7 +67,7 @@
                 "description": "Configure additional options",
                 "data": {
                     "lightwave_homekit": "Hide entities from HomeKit",
-                    "auth_method": "Authentication method"
+                    "lightwave_auth_method": "Authentication method"
                 }
             }
         }
@@ -52,7 +83,7 @@
                 },
                 "brightness": {
                     "name": "Brightness",
-                    "description": "Brightness (0 to 100)"
+                    "description": "Brightness (0 to 255)"
                 }
             }
         },
@@ -67,6 +98,19 @@
         "reset_enabled_status_to_defaults": {
             "name": "Reset Enabled Status to Defaults",
             "description": "This will reset entities enabled statuses to defaults"
+        }
+    },
+    "application_credentials": {
+        "description": "Link your Lightwave account to your Home Assistant account."
+    },
+    "selector": {
+        "lightwave_auth_method": {
+            "options": {
+                "oauth": "Account Linking",
+                "refresh": "Refresh Token",
+                "api_key": "API Key",
+                "password": "Password Authentication"
+            }
         }
     }
 }
