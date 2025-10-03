@@ -7,8 +7,6 @@ import asyncio
 from homeassistant.components import cloud
 from homeassistant.helpers import config_entry_oauth2_flow
 
-from homeassistant.helpers.config_entry_oauth2_flow import LocalOAuth2Implementation
-
 from .auth_const import LW_API_SCOPES
 from lightwave_smart import lightwave_smart
 

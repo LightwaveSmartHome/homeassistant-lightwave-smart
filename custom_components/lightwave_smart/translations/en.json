@@ -10,7 +10,7 @@
         
             "lightwave_auth_method": {
                 "title": "Lightwave Smart Configuration",
-                "description": "Choose your authentication method.\n\n**Note:** Both 'Refresh Token' and 'Password Authentication' require a password. 'Refresh Token' however does not store your password and is preferred over 'Password Authentication'",
+                "description": "Choose your authentication method.\n\n**Note:** Both 'Refresh Token' and 'Password Authentication' require a username and password.\n'Refresh Token' however does not store the password and is preferred over 'Password Authentication'",
                 "data": {
                     "lightwave_auth_method": "Authentication method"
                 }

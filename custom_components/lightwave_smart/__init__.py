@@ -3,7 +3,7 @@ import voluptuous as vol
 import asyncio
 
 from .const import DOMAIN, LIGHTWAVE_LINK2, LIGHTWAVE_ENTITIES, LIGHTWAVE_PLATFORMS, \
-    SERVICE_RECONNECT, SERVICE_UPDATE, CONF_AUTH_METHOD, CONF_API_KEY, \
+    SERVICE_RECONNECT, SERVICE_UPDATE, CONF_LW_AUTH_METHOD, CONF_API_KEY, \
     CONF_REFRESH_TOKEN, CONF_ACCESS_TOKEN, CONF_TOKEN_EXPIRY, SERVICE_RESET_ENABLED_STATUS_TO_DEFAULTS
 from homeassistant.config_entries import ConfigEntry, ConfigEntryAuthFailed
 from homeassistant.const import (CONF_USERNAME, CONF_PASSWORD, CONF_TOKEN)
@@ -23,32 +23,18 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS_FIRMWARE = ["update"]
 PLATFORMS = ["switch", "light", "climate", "cover", "binary_sensor", "sensor", "lock", "event"]
 
-CONFIG_SCHEMA = vol.Schema(
-    {
-        DOMAIN: vol.Schema({
-            vol.Required(CONF_AUTH_METHOD): cv.string,
-            vol.Required(CONF_USERNAME): cv.string,
-            vol.Required(CONF_PASSWORD): cv.string,
-            vol.Required(CONF_API_KEY): cv.string,
-            vol.Required(CONF_REFRESH_TOKEN): cv.string,
-            vol.Required(CONF_ACCESS_TOKEN): cv.string,
-        })
-    },
-    extra=vol.ALLOW_EXTRA,
-)
-
 def async_central_callback(**kwargs):
     _LOGGER.debug("Central callback")
 
 async def async_setup(hass, config):
-
+    
     async def service_handle_reconnect(call):
         _LOGGER.debug("Received service call reconnect")
         for entry_id in hass.data[DOMAIN]:
             link = hass.data[DOMAIN][entry_id][LIGHTWAVE_LINK2]
             try:
-                # Deactivate the Lightwave link
-                await link.async_deactivate("service_handle_reconnect")
+                await link.async_deactivate(source="service_handle_reconnect")
+                await link.async_activate(source="service_handle_reconnect", connect_callback=link.async_get_hierarchy)
             except Exception as e:
                 _LOGGER.error("Error deactivating Lightwave link: %s", e)
 
@@ -213,7 +199,7 @@ async def reload_lw(hass, config_entry):
 async def setup_link_lw(hass, config_entry):
     from lightwave_smart import lightwave_smart
     
-    auth_method = CONF_AUTH_METHOD in config_entry.data and config_entry.data[CONF_AUTH_METHOD] or 'password'
+    auth_method = CONF_LW_AUTH_METHOD in config_entry.data and config_entry.data[CONF_LW_AUTH_METHOD] or 'password'
     username = CONF_USERNAME in config_entry.data and config_entry.data[CONF_USERNAME] or None
     password = CONF_PASSWORD in config_entry.data and config_entry.data[CONF_PASSWORD] or None
     
@@ -262,7 +248,7 @@ async def setup_link_lw(hass, config_entry):
         link.auth.set_token_refresh_callback(on_token_refresh)
         
         if auth_method == "password":
-            link.auth.set_auth_method(auth_method=auth_method, username=username, password=password)
+            link.auth.set_auth_method(auth_method=auth_method, username=username, password=password, access_token=access_token, refresh_token=refresh_token, token_expiry=token_expiry)
         else:
             link.auth.set_auth_method(auth_method=auth_method, api_key=api_key, access_token=access_token, refresh_token=refresh_token, token_expiry=token_expiry)
 

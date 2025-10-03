@@ -1,4 +1,5 @@
 import logging
+import asyncio
 import voluptuous as vol
 from typing import Any, Mapping
 from homeassistant import config_entries
@@ -13,16 +14,18 @@ from homeassistant.config_entries import (
     ConfigFlowResult,
     OptionsFlow
 )
+from homeassistant.helpers import storage
 
 from .const import (
     DOMAIN, 
     CONF_HOMEKIT, 
-    CONF_AUTH_METHODS, 
-    CONF_AUTH_METHOD, 
+    CONF_LW_AUTH_METHODS, 
+    CONF_LW_AUTH_METHOD, 
     CONF_API_KEY, 
     CONF_REFRESH_TOKEN, 
     CONF_ACCESS_TOKEN,
-    CONF_INSTANCE_NAME
+    CONF_LW_INSTANCE_NAME,
+    CONF_LW_OAUTH_USER_INPUT
 )
 from .auth_const import LW_API_SCOPES
 from .utils import set_stored_tokens
@@ -34,16 +37,18 @@ _LOGGER = logging.getLogger(__name__)
 
 AUTH_SCHEMA = vol.Schema(
     {
-        vol.Required(CONF_AUTH_METHOD): selector.SelectSelector(
+        vol.Required(CONF_LW_AUTH_METHOD): selector.SelectSelector(
             selector.SelectSelectorConfig(
                 options=[
-                    selector.SelectOptionDict(value="oauth", label="OAuth2"),
                     selector.SelectOptionDict(value="refresh", label="Refresh"),
-                    selector.SelectOptionDict(value="api_key", label="API_Key"),
+                    # TODO - OAuth2 removed until linking via Home Assistant Cloud is available
+                    # selector.SelectOptionDict(value="oauth", label="OAuth2"),
+                    # TODO - implement API_Key 
+                    # selector.SelectOptionDict(value="api_key", label="API_Key"),
                     selector.SelectOptionDict(value="password", label="Password"),
                 ],
                 mode=selector.SelectSelectorMode.DROPDOWN,
-                translation_key=CONF_AUTH_METHOD,
+                translation_key=CONF_LW_AUTH_METHOD,
             )
         ),
     }
@@ -52,7 +57,7 @@ USER_CREDENTIALS_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_USERNAME): cv.string,
         vol.Required(CONF_PASSWORD): cv.string,
-        vol.Optional(CONF_INSTANCE_NAME): cv.string,
+        vol.Optional(CONF_LW_INSTANCE_NAME): cv.string,
     }
 )
 API_KEY_SCHEMA = vol.Schema(
@@ -64,7 +69,7 @@ API_KEY_SCHEMA = vol.Schema(
         
 OAUTH_SCHEMA = vol.Schema(
     {
-        # vol.Optional(CONF_INSTANCE_NAME): cv.string,
+        # vol.Optional(CONF_LW_INSTANCE_NAME): cv.string,
     }
 )
 
@@ -104,7 +109,7 @@ class lightwave_smartOptionsFlowHandler(config_entries.OptionsFlow):
             step_id="user", 
             data_schema=vol.Schema({
                 vol.Optional(CONF_HOMEKIT, default=options.get(CONF_HOMEKIT)): bool,
-                vol.Remove(CONF_AUTH_METHOD): data.get(CONF_AUTH_METHOD, "unknown")
+                vol.Remove(CONF_LW_AUTH_METHOD): data.get(CONF_LW_AUTH_METHOD, "unknown")
             })
         )
         
@@ -131,31 +136,49 @@ class lightwave_smartFlowHandler(
         scopes = get_api_scopes(self.flow_impl.domain)
         return {"scope": " ".join(scopes)}
 
+    async def _get_application_credential(self, optimistic=False):
+        # due to HA caching we may not immediately be able to read the application_credentials
+        # add a delay to allow for the data/cache to be updated (is there a better way?)
+        store = storage.Store(self.hass, version=1, key="application_credentials", private=True)
+        
+        if not optimistic:
+            await asyncio.sleep(10)
+            
+        stored_credentials = await store.async_load()
+        if stored_credentials and 'items' in stored_credentials:
+            for item in stored_credentials['items']:
+                if item.get('domain') == self.DOMAIN:
+                    _LOGGER.debug(f"_get_application_credential - application_credential: {item} - optimistic: {optimistic}")
+                    return item
+        return None
+
     async def _save_oauth_user_input(self, user_input: dict):
         """Save oauth_user_input to storage."""
+        _LOGGER.debug(f"_save_oauth_user_input - user_input: {user_input}")
+        
         if self.hass is None or self.hass.data is None:
+            _LOGGER.warning(f"_save_oauth_user_input - not saved - hass/hass.data is None - user_input: {user_input}")
             return None
         
-        if DOMAIN in self.hass.data and "oauth_user_input_save_used" in self.hass.data[DOMAIN] and self.hass.data[DOMAIN]["oauth_user_input_save_used"] == True:
-            return None
-            
         if DOMAIN not in self.hass.data:
+            _LOGGER.debug(f"_save_oauth_user_input - hass.data does not have DOMAIN - user_input: {user_input}")
             self.hass.data.setdefault(DOMAIN, {})
         
         user_input = self._set_user_input(user_input)
-        self.hass.data[DOMAIN]["oauth_user_input"] = user_input
+        self.hass.data[DOMAIN].update({CONF_LW_OAUTH_USER_INPUT: user_input})
         return user_input
 
-    def _get_oauth_user_input(self):
-        """Get oauth_user_input from hass.data if available."""
-        if self.hass is None or DOMAIN not in self.hass.data:
-            return None
+    def _pop_oauth_user_input(self):
+        """Pop oauth_user_input from hass.data if available."""
+        if DOMAIN not in self.hass.data:
+            _LOGGER.debug(f"_pop_oauth_user_input - hass.data does not have DOMAIN - setting default")
+            self.hass.data.setdefault(DOMAIN, {})
         
-        oauth_user_input = self.hass.data[DOMAIN].get("oauth_user_input")
+        oauth_user_input = self.hass.data[DOMAIN].get(CONF_LW_OAUTH_USER_INPUT)
         if oauth_user_input is not None:
-            self.hass.data[DOMAIN]["oauth_user_input"] = None
-            self.hass.data[DOMAIN]["oauth_user_input_save_used"] = True
-            _LOGGER.debug(f"_get_oauth_user_input - got oauth_user_input: {oauth_user_input}")
+            self.hass.data[DOMAIN].update({CONF_LW_OAUTH_USER_INPUT: None})
+            
+        _LOGGER.debug(f"_pop_oauth_user_input - oauth_user_input: {oauth_user_input}")
         
         return oauth_user_input
 
@@ -164,14 +187,14 @@ class lightwave_smartFlowHandler(
         schema = AUTH_SCHEMA
 
         if user_input is not None:
-            if CONF_AUTH_METHOD in user_input and user_input[CONF_AUTH_METHOD] in CONF_AUTH_METHODS:
-                if user_input[CONF_AUTH_METHOD] == "password" or user_input[CONF_AUTH_METHOD] == "refresh":
+            if CONF_LW_AUTH_METHOD in user_input and user_input[CONF_LW_AUTH_METHOD] in CONF_LW_AUTH_METHODS:
+                if user_input[CONF_LW_AUTH_METHOD] == "password" or user_input[CONF_LW_AUTH_METHOD] == "refresh":
                     schema = USER_CREDENTIALS_SCHEMA
                 
-                elif user_input[CONF_AUTH_METHOD] == "api_key":
+                elif user_input[CONF_LW_AUTH_METHOD] == "api_key":
                     schema = API_KEY_SCHEMA
                 
-                elif user_input[CONF_AUTH_METHOD] == "oauth":
+                elif user_input[CONF_LW_AUTH_METHOD] == "oauth":
                     schema = OAUTH_SCHEMA
                 
         return schema
@@ -201,7 +224,7 @@ class lightwave_smartFlowHandler(
 
     def _evaluate_instance_name(self, user_input: dict):
         base_code = None
-        if user_input is not None and CONF_INSTANCE_NAME in user_input and user_input[CONF_INSTANCE_NAME]:
+        if user_input is not None and CONF_LW_INSTANCE_NAME in user_input and user_input[CONF_LW_INSTANCE_NAME]:
             return True
 
         return base_code
@@ -217,23 +240,15 @@ class lightwave_smartFlowHandler(
     async def _get_user_input(self, step_id, user_input: dict, data_schema: vol.Schema, base_code: str = None):
         _LOGGER.debug(f"_get_user_input - step_id: {step_id} - user_input: {user_input} - base_code: {base_code} - data_schema: {data_schema}")
         
-        description_placeholders = {}
-        # not sure if this is needed
-        # if user_input is not None and CONF_USERNAME in user_input:
-        #     description_placeholders = {
-        #         "username": user_input[CONF_USERNAME]
-        #     }
-        
         return self.async_show_form(
             step_id=step_id,
             data_schema=data_schema,
             errors=base_code and {"base": base_code} or None,
-            description_placeholders=description_placeholders
         )    
 
 
     async def _step_auth(self, step_id, user_input=None):
-        _LOGGER.debug(f"_step_auth - step_id: {step_id} - user_input: {user_input}")
+        _LOGGER.debug(f"_step_auth - invoking step_id: {step_id} - user_input: {user_input}")
         
         last_user_input = user_input
         user_input = self._set_user_input(user_input)
@@ -244,7 +259,7 @@ class lightwave_smartFlowHandler(
         base_code = None
         if data_schema is AUTH_SCHEMA:
             # this is the default step, always proceeds to further step
-            step_id = "lightwave_auth_method"
+            step_id = CONF_LW_AUTH_METHOD      # "lightwave_auth_method"
             if user_input is not None:
                 # if there is user input here then we know it is invalid (otherwise data_schema would be different)
                 base_code = "invalid_auth_method"
@@ -260,16 +275,6 @@ class lightwave_smartFlowHandler(
         elif data_schema is OAUTH_SCHEMA:
             step_id = "oauth_auth_method"
             base_code = None
-            
-            
-            _LOGGER.warning(f"?????????????????????? _step_auth - last_user_input: {last_user_input} - last_user_input.keys(): {last_user_input.keys()}")
-            
-            # or has no properties
-            if not last_user_input.keys():
-                base_code = True
-            
-            # we can't set the title when oauth, bypass for now
-            # base_code = self._evaluate_instance_name(user_input=user_input)
         
         _LOGGER.debug(f"_step_auth - evaluated - step_id: {step_id} - base_code: {base_code}")
         
@@ -288,28 +293,34 @@ class lightwave_smartFlowHandler(
 
         return existing_entry, entries
 
+
     async def async_step_user(self, user_input: dict | None = None) -> ConfigFlowResult:
         """Handle a flow start."""
         _LOGGER.debug(f"async_step_user - user_input: {user_input} - source: {self.source}")
-        
-        # Handle oauth_user_input if available - see async_step_oauth_auth_method - needed when oauth client credentials need to be set
+
+        # Handle oauth_user_input if available - see async_step_oauth_auth_method - needed when oauth client credentials need to be set first
         if self._user_input is None:
-            oauth_user_input = self._get_oauth_user_input()
+            # if no _user_input then this is a new instance of FlowHandler, check for oauth_user_input
+            oauth_user_input = self._pop_oauth_user_input()
             if oauth_user_input is not None:
-                self._user_input = oauth_user_input
-                return await self.async_step_oauth_auth_method(user_input=oauth_user_input)
+                application_credentials = await self._get_application_credential()
+                if application_credentials is not None:
+                    oauth_user_input["application_credentials"] = True
+                    return await self.async_step_oauth_auth_method(user_input=oauth_user_input)
         
 
         existing_entry, entries = await self._get_existing_entry()
         if entries and len(entries) > 0:
             if self.source != SOURCE_REAUTH and self.source != SOURCE_RECONFIGURE:
                 return self.async_abort(reason="single_instance_allowed")
-            
+        
         
         result = await self._step_auth(step_id="user", user_input=user_input)
         if result is True:
             user_input = self._set_user_input(user_input)
-            if user_input[CONF_AUTH_METHOD] == "refresh":
+            
+            # if refresh then clear the password
+            if user_input[CONF_LW_AUTH_METHOD] == "refresh":
                 user_input[CONF_PASSWORD] = None
             
             # We dont use async_update_entry because we want to set the title
@@ -317,7 +328,7 @@ class lightwave_smartFlowHandler(
             #     self.hass.config_entries.async_update_entry(existing_entry, data=user_input)
             #     return self.async_abort(reason="reconfigure_successful")
             
-            title = user_input[CONF_INSTANCE_NAME] if CONF_INSTANCE_NAME in user_input else None
+            title = user_input[CONF_LW_INSTANCE_NAME] if CONF_LW_INSTANCE_NAME in user_input else None
             if title is None:
                 title = user_input[CONF_USERNAME]
             
@@ -335,38 +346,37 @@ class lightwave_smartFlowHandler(
     
     async def async_step_lightwave_auth_method(self, user_input: dict | None = None) -> ConfigFlowResult:
         _LOGGER.debug(f"async_step_lightwave_auth_method - user_input: {user_input}")
-        
-        # # TODO - we will always have user input here, the result of the next call to _step_auth cannot be boolean
-        # return await self._step_auth(step_id="lightwave_auth_method", user_input=user_input)
-        
-        result = await self._step_auth(step_id="lightwave_auth_method", user_input=user_input)
-        if result is True:
-            if user_input[CONF_AUTH_METHOD] == "oauth":
-                await self._save_oauth_user_input(user_input=user_input)
-            return await super().async_step_user()
-        
-        return result
+        return await self.async_step_user(user_input=user_input)
     
     async def async_step_oauth_auth_method(self, user_input: dict | None = None) -> ConfigFlowResult:
         _LOGGER.debug(f"async_step_oauth_auth_method - user_input: {user_input}")
         
-        if DOMAIN in self.hass.data and "oauth_user_input_save_used" in self.hass.data[DOMAIN]:
-            self.hass.data[DOMAIN]["oauth_user_input_save_used"] = False
-        
-        result = await self._step_auth(step_id="oauth_auth_method", user_input=user_input)
-        if result is True:
-            # if auth client credentials are not set then the FlowHandler will be re-initialized after they are set
-            # this is why we need to save the user_input
-            user_input = self._set_user_input(user_input)
-            result = await self._save_oauth_user_input(user_input=user_input)
+        if user_input is not None:
+            # oauth_user_input is used to tell us to continue the oauth flow after credentials are added
+            # once we have credentials we use it to store the original source for use in async_oauth_create_entry
             
+            application_credentials = None
+            if "application_credentials" in user_input:
+                application_credentials = True
+            else:
+                application_credentials = await self._get_application_credential(optimistic=True)
+
+            if application_credentials is None:
+                user_input = self._set_user_input(user_input)
+            else:
+                user_input = { "original_source": self.source }
+                
+            await self._save_oauth_user_input(user_input=user_input)
             return await super().async_step_user()
         
-        return result
+        _LOGGER.warning(f"async_step_oauth_auth_method - user_input is None")
+        
+        return await self.async_step_user()
     
 
     async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> ConfigFlowResult:
         """Perform reauth upon an API authentication error."""
+        _LOGGER.info(f"async_step_reauth - entry_data: {entry_data}")
         return await self.async_step_reauth_confirm()
 
     async def async_step_reauth_confirm(self, user_input: dict | None = None) -> ConfigFlowResult:
@@ -380,11 +390,20 @@ class lightwave_smartFlowHandler(
         """Create an oauth config entry or update existing entry for reauth."""
         _LOGGER.debug(f"async_oauth_create_entry - data: {data}")
         
+        source = self.source
         
-        # clear oauth_user_input by getting it (oauth_user_input_save_used)
-        oauth_user_input = self._get_oauth_user_input()
+        # TODO - title is set from Oauth name, we could set the title too directly using storage class
+        
+        # when Oauth client credentials are needed to be set, the extra step means we don't know
+        # the original source, so we need to store it in the oauth_user_input
+        oauth_user_input = self._pop_oauth_user_input()
+        if oauth_user_input is not None:
+            if "original_source" in oauth_user_input:
+                source = oauth_user_input["original_source"]
 
         data = self._set_user_input(data)
+        
+        data[CONF_LW_AUTH_METHOD] = "oauth"
 
         # existing_entry = await self.async_set_unique_id(DOMAIN)
         existing_entry, entries = await self._get_existing_entry()
@@ -393,13 +412,13 @@ class lightwave_smartFlowHandler(
             # await self.hass.config_entries.async_reload(existing_entry.entry_id)
             
             reason = "unknown"
-            if self.source == SOURCE_REAUTH:
+            if source == SOURCE_REAUTH:
                 reason = "reauth_successful"
-            elif self.source == SOURCE_RECONFIGURE:
+            elif source == SOURCE_RECONFIGURE:
                 reason = "reconfigure_successful"
                 
             if reason == "unknown":
-                _LOGGER.warning(f"async_oauth_create_entry - existing_entry - unknown reason - source: {self.source} - data: {data}")
+                _LOGGER.warning(f"async_oauth_create_entry - existing_entry - unexpected source: {source} - data: {data}")
                 
             return self.async_abort(reason=reason)
         
@@ -409,16 +428,8 @@ class lightwave_smartFlowHandler(
 
     async def async_step_reconfigure(self, user_input: dict[str, any] | None = None):
         _LOGGER.debug(f"async_step_reconfigure - user_input: {user_input}")
-        
-        result = await self._step_auth(step_id="reconfigure", user_input=user_input)
-        if result is True:
-            self._abort_if_unique_id_mismatch(reason="unique_id_mismatch")
-            return self.async_update_reload_and_abort(
-                self._get_reconfigure_entry(),
-                data_updates=user_input
-            )
-
-        return result
+        # self._abort_if_unique_id_mismatch(reason="unique_id_mismatch")
+        return await self.async_step_user(user_input=user_input)
 
     async def _test_connection(self, username: str, password: str) -> dict:
         """Test the connection to Lightwave."""
