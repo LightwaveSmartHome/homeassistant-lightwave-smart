@@ -3,12 +3,12 @@
   "name": "Lightwave Smart",
   "codeowners": ["@ikb42"],
   "config_flow": true,
-  "dependencies": ["application_credentials"],
+  "dependencies": ["application_credentials","cloud"],
   "documentation": "https://github.com/LightwaveSmartHome/homeassistant-lightwave-smart",
   "integration_type": "hub",
   "iot_class": "cloud_push",
   "issue_tracker": "https://github.com/LightwaveSmartHome/homeassistant-lightwave-smart/issues?q=is%3Aopen+is%3Aissue",
   "loggers": ["custom_components.lightwave_smart", "lightwave_smart"],
   "requirements": ["lightwave_smart==2.0.0"],
-  "version": "5.0.0-Beta"
+  "version": "5.0.1-Beta"
 }

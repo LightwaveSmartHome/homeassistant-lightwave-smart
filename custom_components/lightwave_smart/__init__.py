@@ -17,6 +17,8 @@ from homeassistant.helpers import (
 )
 from .utils import get_stored_tokens, set_stored_tokens
 
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
 _LOGGER = logging.getLogger(__name__)
 
 # Define supported platforms
