@@ -8,6 +8,9 @@
   "integration_type": "hub",
   "iot_class": "cloud_push",
   "issue_tracker": "https://github.com/LightwaveSmartHome/homeassistant-lightwave-smart/issues?q=is%3Aopen+is%3Aissue",
+  "zeroconf": [
+    "_lightwave._tcp.local."
+  ],
   "loggers": ["custom_components.lightwave_smart", "lightwave_smart"],
   "requirements": ["lightwave_smart==2.0.2"],
   "version": "5.0.2-Beta"

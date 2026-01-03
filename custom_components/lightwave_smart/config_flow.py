@@ -15,6 +15,7 @@ from homeassistant.config_entries import (
     OptionsFlow
 )
 from homeassistant.helpers import storage
+from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
 from .const import (
     DOMAIN, 
@@ -293,6 +294,16 @@ class lightwave_smartFlowHandler(
 
         return existing_entry, entries
 
+
+    async def async_step_zeroconf(self, discovery_info: ZeroconfServiceInfo) -> ConfigFlowResult:
+        """Handle zeroconf discovery."""
+        _LOGGER.debug("async_step_zeroconf: %s", discovery_info)
+
+        # Check if already configured
+        await self.async_set_unique_id(DOMAIN)
+        self._abort_if_unique_id_configured()
+
+        return await self.async_step_user()
 
     async def async_step_user(self, user_input: dict | None = None) -> ConfigFlowResult:
         """Handle a flow start."""
