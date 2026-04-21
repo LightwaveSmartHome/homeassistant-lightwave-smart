@@ -3,7 +3,7 @@ from .const import LIGHTWAVE_LINK2, LIGHTWAVE_ENTITIES, SERVICE_SETBRIGHTNESS, C
 from homeassistant.components.light import (
     LightEntity,
     LightEntityDescription,
-    ATTR_BRIGHTNESS, ColorMode
+    ATTR_BRIGHTNESS, ATTR_COLOR_TEMP_KELVIN, ATTR_HS_COLOR, ColorMode
 )
 from homeassistant.core import callback
 from homeassistant.helpers import entity_platform, entity_registry as er
@@ -23,6 +23,17 @@ LIGHT = LightEntityDescription(
     name="Switch",
     has_entity_name=True
 )
+
+LED_DRIVER = LightEntityDescription(
+    key="smartLightSwitch",
+    name="Light",
+    has_entity_name=True
+)
+
+# Colour temperature range for LED drivers (mireds: 1,000,000 / kelvin)
+# Verified from L84V24P200 hardware: 2000K (500 mireds) warm → 9800K (102 mireds) cool
+_LED_DRIVER_MIN_COLOUR_TEMP_K = 2000   # warmest (500 mireds)
+_LED_DRIVER_MAX_COLOUR_TEMP_K = 9800   # coolest (102 mireds)
 
 OFF_LED = LightEntityDescription(
     key="offLed",
@@ -47,9 +58,16 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
     homekit = config_entry.options.get(CONF_HOMEKIT, False)
     for featureset_id, name in link.get_lights():
+        featureset = link.featuresets[featureset_id]
         try:
-            lights.append(LWRF2Light(name, featureset_id, link, homekit))
-        except Exception as e: _LOGGER.exception("Could not add LWRF2Light")
+            if (featureset.has_feature('colourHue')
+                    and featureset.has_feature('colourSetup')
+                    and featureset.has_feature('colourTemperature')):
+                lights.append(LWRF2LEDDriver(name, featureset_id, link, homekit))
+            else:
+                lights.append(LWRF2Light(name, featureset_id, link, homekit))
+        except Exception as e:
+            _LOGGER.exception("Could not add light for featureset %s", featureset_id)
 
 
     for featureset_id, name in link.get_lights():
@@ -101,6 +119,185 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     async_add_entities(lights)
 
 
+class LWRF2LEDDriver(LightEntity):
+    """Representation of a Lightwave LED driver.
+
+    Supports and tested with Function modes, identified by the colourSetup feature:
+      - "RGB with White" (colourSetup=2)
+        ColorMode.HS:
+        Supports brightness and colour control (hue/saturation) of RGB channels.
+
+      - "Warm White Cool White (CCT)" (colourSetup=3)
+        ColorMode.COLOR_TEMP:
+        Supports brightness and colour temperature control of white channel.
+
+    Other Function modes ("White" & "RGB") are untested.
+    """
+
+    _attr_should_poll = False
+
+    def __init__(self, name, featureset_id, link, homekit):
+        _LOGGER.debug("Adding LED driver: %s - %s", name, featureset_id)
+        self._featureset_id = featureset_id
+        self._lwlink = link
+
+        self.entity_description = LED_DRIVER
+
+        self._featureset = self._lwlink.featuresets[self._featureset_id]
+        self._device = self._featureset.device
+
+        self._homekit = homekit
+
+        self._gen2 = self._featureset.is_gen2()
+        self._attr_assumed_state = not self._gen2
+
+        self._attr_unique_id = f"{self._featureset_id}_{self.entity_description.key}"
+        self._attr_device_info = make_entity_device_info(self, name)
+
+        self._state = self._featureset.features["switch"].state
+
+        dim = self._featureset.features["dimLevel"].state
+        self._brightness = int(round(dim / 100 * 255)) if dim is not None else None
+
+        ct = self._featureset.features["colourTemperature"].state
+        self._color_temp_kelvin = round(1_000_000 / ct) if ct else None
+
+        hue = self._featureset.features["colourHue"].state
+        sat = self._featureset.features["colourSaturation"].state
+        self._hs_color = (float(hue), float(sat)) if hue is not None and sat is not None else None
+
+    async def async_added_to_hass(self):
+        """Subscribe to events."""
+        await self._lwlink.async_register_feature_callback(self._featureset_id, self.async_update_callback)
+        registry = er.async_get(self.hass)
+        entity_entry = registry.async_get(self.entity_id)
+        if self._homekit and self._gen2:
+            if entity_entry is not None and not entity_entry.hidden:
+                registry.async_update_entity(
+                    self.entity_id, hidden_by=er.RegistryEntryHider.INTEGRATION
+                )
+        else:
+            if entity_entry is not None and entity_entry.hidden_by == er.RegistryEntryHider.INTEGRATION:
+                registry.async_update_entity(self.entity_id, hidden_by=None)
+
+    @callback
+    def async_update_callback(self, **kwargs):
+        """Update the component's state."""
+        self.async_schedule_update_ha_state(True)
+
+    @property
+    def _colour_setup(self):
+        """Return the colourSetup feature state (2=RGBW, 3=CCT), or None if not yet loaded."""
+        feature = self._featureset.features.get("colourSetup")
+        return feature.state if feature else None
+
+    @property
+    def color_mode(self):
+        setup = self._colour_setup
+        if setup == 2:
+            return ColorMode.HS
+        # colourSetup==3 is CCT; also default to COLOR_TEMP when state not yet loaded
+        return ColorMode.COLOR_TEMP
+
+    @property
+    def supported_color_modes(self):
+        # Return only the mode relevant to this device's wiring so HA hides inapplicable controls.
+        # Falls back to both until colourSetup is populated by the background state update task.
+        setup = self._colour_setup
+        if setup == 2:
+            return {ColorMode.HS}
+        if setup == 3:
+            return {ColorMode.COLOR_TEMP}
+        return {ColorMode.COLOR_TEMP, ColorMode.HS}
+
+    @property
+    def min_color_temp_kelvin(self):
+        return _LED_DRIVER_MIN_COLOUR_TEMP_K
+
+    @property
+    def max_color_temp_kelvin(self):
+        return _LED_DRIVER_MAX_COLOUR_TEMP_K
+
+    @property
+    def color_temp_kelvin(self):
+        return self._color_temp_kelvin
+
+    @property
+    def hs_color(self):
+        return self._hs_color
+
+    @property
+    def brightness(self):
+        return self._brightness
+
+    @property
+    def is_on(self):
+        # Treat dimLevel==0 as off: the Lightwave app leaves switch=1 at 0% brightness
+        # but the light is effectively off. Brightness of 0 (HA scale) means off.
+        if self._brightness is not None and self._brightness == 0:
+            return False
+        return self._state
+
+    async def async_update(self):
+        """Update state from featureset."""
+        self._state = self._featureset.features["switch"].state
+
+        dim = self._featureset.features["dimLevel"].state
+        self._brightness = int(round(dim / 100 * 255)) if dim is not None else None
+
+        ct = self._featureset.features["colourTemperature"].state
+        self._color_temp_kelvin = round(1_000_000 / ct) if ct else None
+
+        hue = self._featureset.features["colourHue"].state
+        sat = self._featureset.features["colourSaturation"].state
+        self._hs_color = (float(hue), float(sat)) if hue is not None and sat is not None else None
+
+    async def async_turn_on(self, **kwargs):
+        """Turn the LED driver on, optionally setting brightness and/or colour."""
+        _LOGGER.debug("LED driver turn_on %s kwargs: %s", self._featureset_id, kwargs)
+
+        if ATTR_BRIGHTNESS in kwargs:
+            self._brightness = kwargs[ATTR_BRIGHTNESS]
+            if self._brightness == 0:
+                # Writing dimLevel=0 resets colourHue/colourSaturation to 0 on the device,
+                # destroying colour state. Use switch=0 instead to preserve colour for next on.
+                await self.async_turn_off()
+                return
+            await self._lwlink.async_set_brightness_by_featureset_id(
+                self._featureset_id, int(round(self._brightness / 255 * 100)))
+
+        if ATTR_COLOR_TEMP_KELVIN in kwargs:
+            kelvin = max(_LED_DRIVER_MIN_COLOUR_TEMP_K,
+                         min(_LED_DRIVER_MAX_COLOUR_TEMP_K, kwargs[ATTR_COLOR_TEMP_KELVIN]))
+            self._color_temp_kelvin = kelvin
+            await self._lwlink.async_write_feature_by_name(
+                self._featureset_id, "colourTemperature", round(1_000_000 / kelvin))
+
+        if ATTR_HS_COLOR in kwargs:
+            h, s = kwargs[ATTR_HS_COLOR]
+            self._hs_color = (h, s)
+            await self._lwlink.async_write_feature_by_name(
+                self._featureset_id, "colourHue", int(round(h)))
+            await self._lwlink.async_write_feature_by_name(
+                self._featureset_id, "colourSaturation", int(round(s)))
+
+        self._state = True
+        await self._lwlink.async_turn_on_by_featureset_id(self._featureset_id)
+        self.async_schedule_update_ha_state()
+
+    async def async_turn_off(self, **kwargs):
+        """Turn the LED driver off."""
+        _LOGGER.debug("LED driver turn_off %s", self._featureset_id)
+        self._state = False
+        await self._lwlink.async_turn_off_by_featureset_id(self._featureset_id)
+        self.async_schedule_update_ha_state()
+
+    @property
+    def extra_state_attributes(self):
+        """Return the optional state attributes."""
+        return get_extra_state_attributes(self)
+
+
 class LWRF2Light(LightEntity):
     """Representation of a LightwaveRF light."""
 
@@ -145,7 +342,7 @@ class LWRF2Light(LightEntity):
                     self.entity_id, hidden_by=er.RegistryEntryHider.INTEGRATION
                 )
         else:
-            if entity_entry.hidden_by == er.RegistryEntryHider.INTEGRATION:
+            if entity_entry is not None and entity_entry.hidden_by == er.RegistryEntryHider.INTEGRATION:
                 registry.async_update_entity(self.entity_id, hidden_by=None)
 
     #TODO add async_will_remove_from_hass() to clean up
