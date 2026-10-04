@@ -92,6 +92,7 @@ class LWRF2Update(UpdateEntity):
         """Update the component's state."""
         _LOGGER.debug(f"async_update_callback - Update update: {self.entity_id} - {self.entity_description.key} - {kwargs}")
         try:
+            self.installed_version = self._device.firmware_version
             self.latest_version = self._device.latest_firmware_version
             self.release_summary = self._device.latest_firmware_release_summary
             self.async_schedule_update_ha_state(True)
