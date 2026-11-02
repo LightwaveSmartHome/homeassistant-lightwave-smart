@@ -195,6 +195,26 @@ class LWRF2LEDDriver(LightEntity):
         level = int(round(brightness / 255 * 100))
         return min(100, max(1, level))
 
+    def _hs_writes(self, hue, saturation):
+        """Order the colourHue and colourSaturation writes for a colour change.
+
+        The driver fades to each value as it arrives, so the order shows. Going
+        towards white, lower saturation first, and skip hue at saturation 0 where
+        it means nothing; otherwise the strip sweeps round the colour wheel on the
+        way (blue to white passes through cyan and green). Going towards colour,
+        set hue first while the strip is still pale.
+        """
+        if saturation == 0:
+            return [("colourSaturation", 0)]
+        try:
+            current = float(self._featureset.features["colourSaturation"].state)
+        except (TypeError, ValueError):
+            current = 100
+        writes = [("colourHue", hue), ("colourSaturation", saturation)]
+        if saturation < current:
+            writes.reverse()
+        return writes
+
     @property
     def color_mode(self):
         setup = self._colour_setup
@@ -298,11 +318,20 @@ class LWRF2LEDDriver(LightEntity):
 
         if ATTR_HS_COLOR in kwargs and ColorMode.HS in modes:
             h, s = kwargs[ATTR_HS_COLOR]
-            self._hs_color = (h, s)
-            await self._lwlink.async_write_feature_by_name(
-                self._featureset_id, "colourHue", int(round(h)))
-            await self._lwlink.async_write_feature_by_name(
-                self._featureset_id, "colourSaturation", int(round(s)))
+            hue, saturation = int(round(h)), int(round(s))
+            if saturation == 0:
+                # Hue is not written, so report the hue still on the device.
+                device_hue = self._featureset.features["colourHue"].state
+                try:
+                    reported_hue = float(device_hue)
+                except (TypeError, ValueError):
+                    reported_hue = float(h)
+                self._hs_color = (reported_hue, 0.0)
+            else:
+                self._hs_color = (h, s)
+            for feature, value in self._hs_writes(hue, saturation):
+                await self._lwlink.async_write_feature_by_name(
+                    self._featureset_id, feature, value)
 
         self._state = True
         await self._lwlink.async_turn_on_by_featureset_id(self._featureset_id)
