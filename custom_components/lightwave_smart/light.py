@@ -9,6 +9,7 @@ from homeassistant.core import callback
 from homeassistant.helpers import entity_platform, entity_registry as er
 from homeassistant.helpers.entity import EntityCategory
 from .utils import (
+    make_device_info,
     make_entity_device_info,
     get_extra_state_attributes
 )
@@ -43,6 +44,94 @@ OFF_LED = LightEntityDescription(
     entity_category=EntityCategory.CONFIG
 )
 
+UI_LED_ON = "uiLEDOnColour"
+UI_LED_OFF = "uiLEDOffColour"
+
+ON_LED = LightEntityDescription(
+    key=UI_LED_ON,
+    name="On LED Indicator",
+    icon="mdi:led-on",
+    has_entity_name=True,
+    entity_category=EntityCategory.CONFIG
+)
+
+OFF_UI_LED = LightEntityDescription(
+    key=UI_LED_OFF,
+    name="Off LED Indicator",
+    icon="mdi:led-outline",
+    has_entity_name=True,
+    entity_category=EntityCategory.CONFIG
+)
+
+def _ui_led_featuresets(link):
+    """Gang featuresets that use uiLEDOnColour and uiLEDOffColour."""
+    found = []
+    seen = set()
+    for device in link.devices.values():
+        for featureset in device.featuresets:
+            if featureset.featureset_id in seen:
+                continue
+            if not (
+                featureset.has_feature(UI_LED_ON)
+                and featureset.has_feature(UI_LED_OFF)
+                and not featureset.virtual_product_code
+            ):
+                continue
+            seen.add(featureset.featureset_id)
+            found.append(featureset)
+    return found
+
+def _remove_light_entity(entity_registry, unique_id):
+    entity_id = entity_registry.async_get_entity_id("light", DOMAIN, unique_id)
+    if entity_id is not None:
+        entity_registry.async_remove(entity_id)
+
+def _led_featuresets_by_device(link):
+    """Featuresets that expose rgbColor, grouped by physical device.
+
+    A multi-gang plate has one status LED. Each gang featureset still
+    carries rgbColor, so callers must create a single entity per device.
+    """
+    groups = []
+    for device in link.devices.values():
+        featuresets = []
+        seen = set()
+        for featureset in device.featuresets:
+            if not featureset.has_led() or featureset.featureset_id in seen:
+                continue
+            seen.add(featureset.featureset_id)
+            featuresets.append(featureset)
+        if featuresets:
+            groups.append(featuresets)
+    return groups
+
+def _migrate_off_led_unique_id(entity_registry, featuresets, new_unique_id):
+    """Keep one existing Off LED entity when its unique id changes.
+
+    Renames, entity ids, and disabled flags stay on that entity. Other
+    gangs are removed by the caller.
+    """
+    if entity_registry.async_get_entity_id("light", DOMAIN, new_unique_id):
+        return
+    for featureset in featuresets:
+        old_unique_id = f"{featureset.featureset_id}_{OFF_LED.key}"
+        if old_unique_id == new_unique_id:
+            continue
+        entity_id = entity_registry.async_get_entity_id("light", DOMAIN, old_unique_id)
+        if entity_id is None:
+            continue
+        entity_registry.async_update_entity(entity_id, new_unique_id=new_unique_id)
+        return
+
+def _remove_stale_led_entities(entity_registry, featuresets, keep_unique_id):
+    """Drop per-gang Off LED entities and the old uiIndicator ledIndicator."""
+    for featureset in featuresets:
+        for suffix in (OFF_LED.key, "ledIndicator"):
+            unique_id = f"{featureset.featureset_id}_{suffix}"
+            if unique_id == keep_unique_id:
+                continue
+            _remove_light_entity(entity_registry, unique_id)
+
 async def async_setup_entry(hass, config_entry, async_add_entities):
     """Find and return Lightwave lights."""
 
@@ -64,30 +153,35 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
 
     entity_registry = er.async_get(hass)
-    for featureset_id, name in link.get_lights():
-        feature_set = link.featuresets[featureset_id]
-        if feature_set.has_led():
-            try:
-                lights.append(LWRF2LED(name, featureset_id, link, OFF_LED))
-                # Demapped gangs used to be a separate ledIndicator entity on uiIndicator.
-                stale_led = entity_registry.async_get_entity_id(
-                    "light", DOMAIN, f"{featureset_id}_ledIndicator"
-                )
-                if stale_led is not None:
-                    entity_registry.async_remove(stale_led)
-            except Exception as e: _LOGGER.exception("Could not add LWRF2LED")
+    ui_led_featuresets = _ui_led_featuresets(link)
+    ui_led_device_ids = {featureset.device.device_id for featureset in ui_led_featuresets}
 
-    for featureset_id, name in link.get_sockets():
-        if link.featuresets[featureset_id].has_led():
-            try:
-                lights.append(LWRF2LED(name, featureset_id, link, OFF_LED))
-            except Exception as e: _LOGGER.exception("Could not add LWRF2LED")
+    for featuresets in _led_featuresets_by_device(link):
+        device_id = featuresets[0].device.device_id
+        try:
+            if device_id in ui_led_device_ids:
+                _remove_stale_led_entities(entity_registry, featuresets, None)
+                _remove_light_entity(entity_registry, f"{device_id}_{OFF_LED.key}")
+                continue
+            led = LWRF2LED(featuresets, link, OFF_LED)
+            _migrate_off_led_unique_id(entity_registry, featuresets, led.unique_id)
+            _remove_stale_led_entities(entity_registry, featuresets, led.unique_id)
+            lights.append(led)
+        except Exception:
+            _LOGGER.exception(
+                "Could not add LWRF2LED for device %s",
+                device_id,
+            )
 
-    for featureset_id, name in link.get_hubs():
-        if link.featuresets[featureset_id].has_led():
-            try:
-                lights.append(LWRF2LED(name, featureset_id, link, OFF_LED))
-            except Exception as e: _LOGGER.exception("Could not add LWRF2LED")
+    for featureset in ui_led_featuresets:
+        try:
+            lights.append(LWRF2LED([featureset], link, ON_LED, UI_LED_ON, per_gang=True))
+            lights.append(LWRF2LED([featureset], link, OFF_UI_LED, UI_LED_OFF, per_gang=True))
+        except Exception:
+            _LOGGER.exception(
+                "Could not add MK4 LED indicators for featureset %s",
+                featureset.featureset_id,
+            )
             
 
     async def service_handle_brightness(light, call):
@@ -468,60 +562,113 @@ class LWRF2Light(LightEntity):
 
 
 class LWRF2LED(LightEntity):
-    """Representation of a LightwaveRF LED."""
+    """Locator LED colour for a Lightwave plate.
+
+    rgbColor is one setting for the whole plate. Multi-gang dimmers and
+    sockets repeat it on every gang, so that entity reads and writes the
+    first featureset and still follows updates reported on the others.
+
+    MK4 gangs use uiLEDOnColour and uiLEDOffColour. Those stay on the gang,
+    because each gang can have its own on and off colour.
+    """
 
     # _attr_has_entity_name = True
     _attr_should_poll = False
 
-    def __init__(self, name, featureset_id, link, description, feature_type='rgbColor'):
-        _LOGGER.debug("Adding LED (%s): %s - %s ", description.key, name, featureset_id)
-        self._featureset_id = featureset_id
+    def __init__(self, featuresets, link, description, feature_type='rgbColor', per_gang=False):
+        self._featuresets = featuresets
+        self._featureset = featuresets[0]
+        self._featureset_id = self._featureset.featureset_id
+        self._color_featureset = self._featureset
         self._lwlink = link
 
         self.entity_description = description
-        
-        self._featureset = self._lwlink.featuresets[self._featureset_id]
+
         self._device = self._featureset.device
 
         self._gen2 = self._featureset.is_gen2()
         self._attr_assumed_state = not self._gen2
 
-        self._attr_unique_id = f"{self._featureset_id}_{self.entity_description.key}"
-        
-        self._attr_device_info = make_entity_device_info(self, name)
-        
+        if per_gang:
+            self._attr_unique_id = f"{self._featureset_id}_{self.entity_description.key}"
+            self._attr_device_info = make_entity_device_info(self, self._featureset.name)
+        else:
+            self._attr_unique_id = f"{self._device.device_id}_{self.entity_description.key}"
+            # Hubs are registered against their featureset. Plates use the parent
+            # device, the same one as the firmware entity.
+            if self._device.is_hub():
+                self._attr_device_info = make_entity_device_info(self)
+            else:
+                self._attr_device_info = make_device_info(self)
+
         self.feature_type = feature_type
 
-        # feature_type uiIndicator is not readable from Link (though server may have cache), events are generated when its changed
-        color = \
-            self._featureset.features[self.feature_type].state
+        _LOGGER.debug(
+            "Adding LED (%s): %s via %s (%d featuresets)",
+            description.key,
+            self._device.device_id,
+            self._featureset_id,
+            len(featuresets),
+        )
+
+        self._state = False
+        self._r = 255
+        self._g = 255
+        self._b = 255
+        self._brightness = 255
+        self._apply_color(self._featureset.features[self.feature_type].state)
+
+    def _apply_color(self, color, *, keep_last_when_off=False):
+        """Decode a packed rgbColor integer into on/off, colour, and brightness."""
         if color == 0 or not color:
             self._state = False
-            self._r = 255
-            self._g = 255
-            self._b = 255
-        else:
-            self._state = True
-            self._r = color // 65536
-            self._g = (color - self._r * 65536) // 256
-            self._b = (color - self._r * 65536 - self._g * 256)
+            if not keep_last_when_off:
+                self._r = 255
+                self._g = 255
+                self._b = 255
+                self._brightness = 255
+            return
+
+        self._state = True
+        self._r = color // 65536
+        self._g = (color - self._r * 65536) // 256
+        self._b = color - self._r * 65536 - self._g * 256
         self._brightness = max(self._r, self._g, self._b)
+        if self._brightness == 0:
+            self._state = False
+            return
         self._r = int(self._r * 255 / self._brightness)
         self._g = int(self._g * 255 / self._brightness)
         self._b = int(self._b * 255 / self._brightness)
 
+    def _featureset_for_feature_id(self, feature_id):
+        for featureset in self._featuresets:
+            feature = featureset.features.get(self.feature_type)
+            if feature is not None and feature.id == feature_id:
+                return featureset
+        return None
 
     async def async_added_to_hass(self):
-        """Subscribe to events."""
-        _LOGGER.debug("async_added_to_hass - for %s ", self._featureset_id)
-        await self._lwlink.async_register_feature_callback(self._featureset_id, self.async_update_callback)
+        """Subscribe to events from every gang that exposes this LED."""
+        _LOGGER.debug("async_added_to_hass - for %s ", self._device.device_id)
+        for featureset in self._featuresets:
+            await self._lwlink.async_register_feature_callback(
+                featureset.featureset_id, self.async_update_callback
+            )
 
     #TODO add async_will_remove_from_hass() to clean up
 
     @callback
     def async_update_callback(self, **kwargs):
         """Update the component's state."""
-        _LOGGER.debug("async_update_callback - for %s - %s ", self._featureset_id, kwargs)
+        _LOGGER.debug("async_update_callback - for %s - %s ", self._device.device_id, kwargs)
+        if kwargs.get("feature") == self.feature_type:
+            source = self._featureset_for_feature_id(kwargs.get("feature_id"))
+            if source is not None:
+                self._color_featureset = source
+            self._apply_color(kwargs.get("new_value"), keep_last_when_off=True)
+            self.async_write_ha_state()
+            return
         self.async_schedule_update_ha_state(True)
 
     @property
@@ -535,21 +682,11 @@ class LWRF2LED(LightEntity):
         return ColorMode.RGB
 
     async def async_update(self):
-        """Update state"""
-        color = \
-            self._featureset.features[self.feature_type].state
-        
-        if color == 0 or not color:
-            self._state = False
-        else:
-            self._state = True
-            self._r = color // 65536
-            self._g = (color - self._r * 65536) //256
-            self._b = (color - self._r * 65536 - self._g * 256)
-            self._brightness = max(self._r, self._g, self._b)
-            self._r = int(self._r * 255 / self._brightness)
-            self._g = int(self._g * 255 / self._brightness)
-            self._b = int(self._b * 255 / self._brightness)
+        """Update state from the featureset that last reported rgbColor."""
+        self._apply_color(
+            self._color_featureset.features[self.feature_type].state,
+            keep_last_when_off=True,
+        )
 
     @property
     def brightness(self):
