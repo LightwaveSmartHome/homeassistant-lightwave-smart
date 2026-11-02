@@ -254,6 +254,7 @@ async def setup_link_lw(hass, config_entry):
         else:
             link.auth.set_auth_method(auth_method=auth_method, api_key=api_key, access_token=access_token, refresh_token=refresh_token, token_expiry=token_expiry)
 
+    link.hass = hass
     return link
 
 def remove_missing_devices_and_entities(config_entry, link, device_registry, entity_registry):

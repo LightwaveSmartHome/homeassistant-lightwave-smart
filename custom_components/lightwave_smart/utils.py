@@ -1,7 +1,27 @@
 from .const import DOMAIN
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import storage
+
+def _via_device_id(entity, identifier, own_identifier):
+    """Return the registry id of an already registered parent device.
+
+    via_device_id must be a device registry id. Omit it when the parent is
+    missing, or when it is this device: passing None clears a link, and a
+    self-link is rejected.
+    """
+    if not identifier or identifier == own_identifier:
+        return None
+    hass = getattr(entity._lwlink, "hass", None)
+    if hass is None:
+        return None
+    entry = dr.async_get(hass).async_get_device(
+        identifiers={(DOMAIN, identifier)}
+    )
+    if entry is None:
+        return None
+    return entry.id
 
 def make_device_info(entity, name = None):
     device = entity._device
@@ -9,22 +29,26 @@ def make_device_info(entity, name = None):
     if device.virtual_product_code:
         product_code += "-" + device.virtual_product_code
 
-    via_device = entity._lwlink.get_linkPlus_featureset_id(device.device_id)
+    via_identifier = entity._lwlink.get_linkPlus_featureset_id(device.device_id)
 
-    return DeviceInfo({
+    device_info = {
         "identifiers": { (DOMAIN, device.device_id) },
         "name": name or device.name + " Device",
         "manufacturer": device.manufacturer_code,
         "model": product_code,
         "serial_number": device.serial,
         "sw_version": device.firmware_version,
-        "via_device": (DOMAIN, via_device),
-    })
+    }
+    via_device_id = _via_device_id(entity, via_identifier, device.device_id)
+    if via_device_id:
+        device_info["via_device_id"] = via_device_id
+
+    return DeviceInfo(**device_info)
     
 def make_entity_device_info(entity, name = None):
-    via_device = entity._lwlink.get_linkPlus_featureset_id(entity._featureset_id)
+    via_identifier = entity._lwlink.get_linkPlus_featureset_id(entity._featureset_id)
     if entity._gen2 and not entity._device.is_hub():
-        via_device = entity._device.device_id
+        via_identifier = entity._device.device_id
         
     if entity._device.is_hub():
         # Keep original name, which is set in __init__.py
@@ -34,13 +58,16 @@ def make_entity_device_info(entity, name = None):
         "identifiers": { (DOMAIN, entity._featureset_id) },
         "manufacturer": entity._device.manufacturer_code,
         "model": entity._device.product_code,
-        "via_device": (DOMAIN, via_device),
     }
     
     if name:
         device_info["name"] = name
 
-    return DeviceInfo(device_info)
+    via_device_id = _via_device_id(entity, via_identifier, entity._featureset_id)
+    if via_device_id:
+        device_info["via_device_id"] = via_device_id
+
+    return DeviceInfo(**device_info)
 
 def get_extra_state_attributes(entity):
     """Return the optional state attributes."""
