@@ -104,9 +104,12 @@ class LWRF2Update(UpdateEntity):
     @callback
     def _update_device_sw_version(self):
         """Write the installed firmware version onto the device registry entry."""
+        config_entry_id = getattr(self._lwlink, "config_entry_id", None)
+        if not config_entry_id:
+            return
         device_registry = dr.async_get(self.hass)
-        device_entry = device_registry.async_get_device(
-            identifiers={(DOMAIN, self._device_id)}
+        device_entry = device_registry.async_get_device_by_identifier(
+            (DOMAIN, self._device_id), config_entry_id
         )
         version = self._device.firmware_version
         if device_entry is not None and device_entry.sw_version != version:

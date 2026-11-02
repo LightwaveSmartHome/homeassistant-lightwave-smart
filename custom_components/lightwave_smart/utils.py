@@ -14,10 +14,11 @@ def _via_device_id(entity, identifier, own_identifier):
     if not identifier or identifier == own_identifier:
         return None
     hass = getattr(entity._lwlink, "hass", None)
-    if hass is None:
+    config_entry_id = getattr(entity._lwlink, "config_entry_id", None)
+    if hass is None or not config_entry_id:
         return None
-    entry = dr.async_get(hass).async_get_device(
-        identifiers={(DOMAIN, identifier)}
+    entry = dr.async_get(hass).async_get_device_by_identifier(
+        (DOMAIN, identifier), config_entry_id
     )
     if entry is None:
         return None
