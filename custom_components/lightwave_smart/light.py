@@ -318,8 +318,18 @@ class LWRF2LEDDriver(LightEntity):
 
         if ATTR_HS_COLOR in kwargs and ColorMode.HS in modes:
             h, s = kwargs[ATTR_HS_COLOR]
-            self._hs_color = (h, s)
-            for feature, value in self._hs_writes(int(round(h)), int(round(s))):
+            hue, saturation = int(round(h)), int(round(s))
+            if saturation == 0:
+                # Hue is not written, so report the hue still on the device.
+                device_hue = self._featureset.features["colourHue"].state
+                try:
+                    reported_hue = float(device_hue)
+                except (TypeError, ValueError):
+                    reported_hue = float(h)
+                self._hs_color = (reported_hue, 0.0)
+            else:
+                self._hs_color = (h, s)
+            for feature, value in self._hs_writes(hue, saturation):
                 await self._lwlink.async_write_feature_by_name(
                     self._featureset_id, feature, value)
 
