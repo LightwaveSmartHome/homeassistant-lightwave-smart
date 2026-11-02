@@ -43,13 +43,6 @@ OFF_LED = LightEntityDescription(
     entity_category=EntityCategory.CONFIG
 )
 
-LED = LightEntityDescription(
-    key="ledIndicator",
-    name="LED Indicator",
-    icon="mdi:led-outline",
-    has_entity_name=True,
-)
-
 async def async_setup_entry(hass, config_entry, async_add_entities):
     """Find and return Lightwave lights."""
 
@@ -70,20 +63,18 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             _LOGGER.exception("Could not add light for featureset %s", featureset_id)
 
 
+    entity_registry = er.async_get(hass)
     for featureset_id, name in link.get_lights():
         feature_set = link.featuresets[featureset_id]
         if feature_set.has_led():
-            channel_input_mapped = None
-            if feature_set.has_uiIndicator():
-                ui_io_map_feature = feature_set.get_feature_by_type("uiIOMap")
-                channel_input_mapped = ui_io_map_feature.channel_input_mapped
-                
             try:
-                if channel_input_mapped is not None and channel_input_mapped == False:
-                    lights.append(LWRF2LED(name, featureset_id, link, LED, 'uiIndicator'))
-                else:
-                    lights.append(LWRF2LED(name, featureset_id, link, OFF_LED))
-                    
+                lights.append(LWRF2LED(name, featureset_id, link, OFF_LED))
+                # Demapped gangs used to be a separate ledIndicator entity on uiIndicator.
+                stale_led = entity_registry.async_get_entity_id(
+                    "light", DOMAIN, f"{featureset_id}_ledIndicator"
+                )
+                if stale_led is not None:
+                    entity_registry.async_remove(stale_led)
             except Exception as e: _LOGGER.exception("Could not add LWRF2LED")
 
     for featureset_id, name in link.get_sockets():
