@@ -122,16 +122,14 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 class LWRF2LEDDriver(LightEntity):
     """Representation of a Lightwave LED driver.
 
-    Supports and tested with Function modes, identified by the colourSetup feature:
-      - "RGB with White" (colourSetup=2)
-        ColorMode.HS:
-        Supports brightness and colour control (hue/saturation) of RGB channels.
+    Function mode comes from colourSetup:
+      - White (0): brightness only.
+      - RGB (1) and RGB with White (2): hue, saturation, and brightness.
+        Saturation is whiteness: 0 is white, 100 is full colour.
+      - Warm White Cool White (3): colour temperature and brightness.
 
-      - "Warm White Cool White (CCT)" (colourSetup=3)
-        ColorMode.COLOR_TEMP:
-        Supports brightness and colour temperature control of white channel.
-
-    Other Function modes ("White" & "RGB") are untested.
+    RGB with White and CCT are tested on L84V24 hardware. White and RGB have
+    not been checked on a device.
     """
 
     _attr_should_poll = False
@@ -192,7 +190,7 @@ class LWRF2LEDDriver(LightEntity):
 
     @property
     def _colour_setup(self):
-        """Return colourSetup as an int (2=RGBW, 3=CCT), or None if not yet loaded."""
+        """Return colourSetup as an int (0=White, 1=RGB, 2=RGBW, 3=CCT), or None."""
         feature = self._featureset.features.get("colourSetup")
         if feature is None or feature.state is None:
             return None
@@ -209,17 +207,24 @@ class LWRF2LEDDriver(LightEntity):
     @property
     def color_mode(self):
         setup = self._colour_setup
-        if setup == 2:
+        if setup == 0:
+            return ColorMode.BRIGHTNESS
+        if setup in (1, 2):
             return ColorMode.HS
-        # colourSetup==3 is CCT; also default to COLOR_TEMP when state not yet loaded
+        # CCT, and the fallback while colourSetup has not loaded yet.
         return ColorMode.COLOR_TEMP
 
     @property
     def supported_color_modes(self):
-        # Return only the mode relevant to this device's wiring so HA hides inapplicable controls.
-        # Falls back to both until colourSetup is populated by the background state update task.
+        """Expose only the controls for this function mode.
+
+        Until colourSetup has loaded, both colour controls stay available so the
+        entity does not drop a mode and then add it back.
+        """
         setup = self._colour_setup
-        if setup == 2:
+        if setup == 0:
+            return {ColorMode.BRIGHTNESS}
+        if setup in (1, 2):
             return {ColorMode.HS}
         if setup == 3:
             return {ColorMode.COLOR_TEMP}
@@ -292,14 +297,15 @@ class LWRF2LEDDriver(LightEntity):
             await self._lwlink.async_set_brightness_by_featureset_id(
                 self._featureset_id, self._dim_level_for_device(brightness))
 
-        if ATTR_COLOR_TEMP_KELVIN in kwargs:
+        modes = self.supported_color_modes
+        if ATTR_COLOR_TEMP_KELVIN in kwargs and ColorMode.COLOR_TEMP in modes:
             kelvin = max(_LED_DRIVER_MIN_COLOUR_TEMP_K,
                          min(_LED_DRIVER_MAX_COLOUR_TEMP_K, kwargs[ATTR_COLOR_TEMP_KELVIN]))
             self._color_temp_kelvin = kelvin
             await self._lwlink.async_write_feature_by_name(
                 self._featureset_id, "colourTemperature", round(1_000_000 / kelvin))
 
-        if ATTR_HS_COLOR in kwargs:
+        if ATTR_HS_COLOR in kwargs and ColorMode.HS in modes:
             h, s = kwargs[ATTR_HS_COLOR]
             self._hs_color = (h, s)
             await self._lwlink.async_write_feature_by_name(
