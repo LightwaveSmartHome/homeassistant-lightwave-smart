@@ -158,6 +158,7 @@ class LWRF2LEDDriver(LightEntity):
 
         dim = self._featureset.features["dimLevel"].state
         self._brightness = int(round(dim / 100 * 255)) if dim is not None else None
+        self._last_brightness = self._brightness or None
 
         ct = self._featureset.features["colourTemperature"].state
         self._color_temp_kelvin = round(1_000_000 / ct) if ct else None
@@ -183,13 +184,27 @@ class LWRF2LEDDriver(LightEntity):
     @callback
     def async_update_callback(self, **kwargs):
         """Update the component's state."""
+        if kwargs["feature"] == "uiButtonPair":
+            _LOGGER.debug("Button (light) press event: %s %s", self.entity_id, kwargs["new_value"])
+            self.hass.bus.fire("lightwave_smart.click",{"entity_id": self.entity_id, "code": kwargs["new_value"]},
+        )
         self.async_schedule_update_ha_state(True)
 
     @property
     def _colour_setup(self):
-        """Return the colourSetup feature state (2=RGBW, 3=CCT), or None if not yet loaded."""
+        """Return colourSetup as an int (2=RGBW, 3=CCT), or None if not yet loaded."""
         feature = self._featureset.features.get("colourSetup")
-        return feature.state if feature else None
+        if feature is None or feature.state is None:
+            return None
+        try:
+            return int(feature.state)
+        except (TypeError, ValueError):
+            return None
+
+    def _dim_level_for_device(self, brightness):
+        """Convert HA brightness to dimLevel. Never send 0; that clears colour."""
+        level = int(round(brightness / 255 * 100))
+        return min(100, max(1, level))
 
     @property
     def color_mode(self):
@@ -244,6 +259,8 @@ class LWRF2LEDDriver(LightEntity):
 
         dim = self._featureset.features["dimLevel"].state
         self._brightness = int(round(dim / 100 * 255)) if dim is not None else None
+        if self._brightness:
+            self._last_brightness = self._brightness
 
         ct = self._featureset.features["colourTemperature"].state
         self._color_temp_kelvin = round(1_000_000 / ct) if ct else None
@@ -256,15 +273,24 @@ class LWRF2LEDDriver(LightEntity):
         """Turn the LED driver on, optionally setting brightness and/or colour."""
         _LOGGER.debug("LED driver turn_on %s kwargs: %s", self._featureset_id, kwargs)
 
-        if ATTR_BRIGHTNESS in kwargs:
-            self._brightness = kwargs[ATTR_BRIGHTNESS]
-            if self._brightness == 0:
-                # Writing dimLevel=0 resets colourHue/colourSaturation to 0 on the device,
-                # destroying colour state. Use switch=0 instead to preserve colour for next on.
-                await self.async_turn_off()
-                return
+        if ATTR_BRIGHTNESS in kwargs and kwargs[ATTR_BRIGHTNESS] == 0:
+            # Writing dimLevel=0 resets colourHue/colourSaturation to 0 on the device,
+            # destroying colour state. Use switch=0 instead to preserve colour for next on.
+            await self.async_turn_off()
+            return
+
+        brightness = kwargs.get(ATTR_BRIGHTNESS)
+        if brightness is None and not self._brightness:
+            # The app can leave switch=1 at dimLevel 0, which is reported as off.
+            # A toggle sends no brightness, so restore the last level above 0.
+            brightness = self._last_brightness or 255
+
+        if brightness is not None:
+            self._brightness = brightness
+            if brightness:
+                self._last_brightness = brightness
             await self._lwlink.async_set_brightness_by_featureset_id(
-                self._featureset_id, int(round(self._brightness / 255 * 100)))
+                self._featureset_id, self._dim_level_for_device(brightness))
 
         if ATTR_COLOR_TEMP_KELVIN in kwargs:
             kelvin = max(_LED_DRIVER_MIN_COLOUR_TEMP_K,
