@@ -47,7 +47,7 @@ PRESET_NAMES = {"Auto": None, "20%": 20, "40%": 40, "60%": 60, "80%": 80, "100%"
 
 CLIMATE = ClimateEntityDescription(
     key="thermostat",
-    name="Thermostat",
+    name=None,
 )   
 
 

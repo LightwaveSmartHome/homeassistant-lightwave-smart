@@ -21,13 +21,13 @@ _LOGGER = logging.getLogger(__name__)
 
 LIGHT = LightEntityDescription(
     key="smartLightSwitch",
-    name="Switch",
+    name=None,
     has_entity_name=True
 )
 
 LED_DRIVER = LightEntityDescription(
     key="smartLightSwitch",
-    name="Light",
+    name=None,
     has_entity_name=True
 )
 
