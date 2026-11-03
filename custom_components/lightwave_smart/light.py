@@ -38,9 +38,9 @@ _LED_DRIVER_MAX_COLOUR_TEMP_K = 9800   # coolest (102 mireds)
 
 OFF_LED = LightEntityDescription(
     key="offLed",
-    name="Off LED Indicator",
+    name="Off LED",
     icon="mdi:led-outline",
-    has_entity_name=True,
+    has_entity_name=False,
     entity_category=EntityCategory.CONFIG
 )
 
@@ -89,7 +89,7 @@ def _remove_light_entity(entity_registry, unique_id):
 def _led_featuresets_by_device(link):
     """Featuresets that expose rgbColor, grouped by physical device.
 
-    A multi-gang plate has one status LED. Each gang featureset still
+    A multi-gang device has one status LED. Each gang featureset still
     carries rgbColor, so callers must create a single entity per device.
     """
     groups = []
@@ -104,6 +104,22 @@ def _led_featuresets_by_device(link):
         if featuresets:
             groups.append(featuresets)
     return groups
+
+def _off_led_name(featuresets):
+    """Friendly name for the shared Off LED.
+
+    Uses the primary gang when one is marked, otherwise the gang the entity
+    writes to: "{name} Off LED".
+    """
+    anchor = featuresets[0]
+    for featureset in featuresets:
+        if "(primary)" in (featureset.name or "").lower():
+            anchor = featureset
+            break
+    gang_name = (anchor.name or "").strip()
+    if gang_name:
+        return f"{gang_name} Off LED"
+    return "Off LED"
 
 def _migrate_off_led_unique_id(entity_registry, featuresets, new_unique_id):
     """Keep one existing Off LED entity when its unique id changes.
@@ -562,11 +578,14 @@ class LWRF2Light(LightEntity):
 
 
 class LWRF2LED(LightEntity):
-    """Locator LED colour for a Lightwave plate.
+    """Locator LED colour for a Lightwave device.
 
-    rgbColor is one setting for the whole plate. Multi-gang dimmers and
+    rgbColor is one setting for the whole device. Multi-gang dimmers and
     sockets repeat it on every gang, so that entity reads and writes the
     first featureset and still follows updates reported on the others.
+
+    The friendly name is the primary gang name plus "Off LED". It is not
+    composed from the device name, which joins every gang together.
 
     MK4 gangs use uiLEDOnColour and uiLEDOffColour. Those stay on the gang,
     because each gang can have its own on and off colour.
@@ -594,8 +613,12 @@ class LWRF2LED(LightEntity):
             self._attr_device_info = make_entity_device_info(self, self._featureset.name)
         else:
             self._attr_unique_id = f"{self._device.device_id}_{self.entity_description.key}"
-            # Hubs are registered against their featureset. Plates use the parent
-            # device, the same one as the firmware entity.
+            # Own friendly name. has_entity_name would prefix the device
+            # name, which is every gang joined together.
+            self._attr_has_entity_name = False
+            self._attr_name = _off_led_name(featuresets)
+            # Hubs are registered against their featureset. Other devices use the
+            # parent device, the same one as the firmware entity.
             if self._device.is_hub():
                 self._attr_device_info = make_entity_device_info(self)
             else:
