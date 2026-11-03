@@ -19,14 +19,14 @@ _LOGGER = logging.getLogger(__name__)
 SOCKET = SwitchEntityDescription(
     key="smartSocket",
     device_class=SwitchDeviceClass.OUTLET,
-    name="Switch",
+    name=None,
     icon="mdi:power-socket-uk"
 )
 
 SWITCH = SwitchEntityDescription(
     key="smartSwitch",
     device_class=SwitchDeviceClass.SWITCH,
-    name="Switch"
+    name=None
 )
 
 async def async_setup_entry(hass, config_entry, async_add_entities):

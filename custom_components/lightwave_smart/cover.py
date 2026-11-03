@@ -21,7 +21,7 @@ _LOGGER = logging.getLogger(__name__)
 
 COVER = CoverEntityDescription(
     key="cover",
-    name="Cover",
+    name=None,
     # translation_key="curtain",
     # device_class=CoverDeviceClass.CURTAIN,    
 )
