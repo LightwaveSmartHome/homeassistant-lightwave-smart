@@ -8,6 +8,7 @@ from .const import DOMAIN, LIGHTWAVE_LINK2, LIGHTWAVE_ENTITIES, LIGHTWAVE_PLATFO
 from homeassistant.config_entries import ConfigEntry, ConfigEntryAuthFailed
 from homeassistant.const import (CONF_USERNAME, CONF_PASSWORD, CONF_TOKEN)
 from homeassistant.core import HomeAssistant
+from homeassistant.loader import async_get_integration
 from homeassistant.helpers import (
     device_registry as dr,
     entity_registry as er,
@@ -200,6 +201,9 @@ async def reload_lw(hass, config_entry):
 
 async def setup_link_lw(hass, config_entry):
     from lightwave_smart import lightwave_smart
+
+    integration = await async_get_integration(hass, DOMAIN)
+    client_version = integration.version
     
     auth_method = CONF_LW_AUTH_METHOD in config_entry.data and config_entry.data[CONF_LW_AUTH_METHOD] or 'password'
     username = CONF_USERNAME in config_entry.data and config_entry.data[CONF_USERNAME] or None
@@ -233,7 +237,7 @@ async def setup_link_lw(hass, config_entry):
         session = config_entry_oauth2_flow.OAuth2Session(hass, config_entry, implementation)
         
         lightwaveSmartAuth = LightwaveSmartAuth(session)
-        link = lightwave_smart.LWLink2(auth=lightwaveSmartAuth)
+        link = lightwave_smart.LWLink2(auth=lightwaveSmartAuth, client_version=client_version)
         
     else:
         def on_token_refresh(access_token, refresh_token, token_expiry):
@@ -246,7 +250,7 @@ async def setup_link_lw(hass, config_entry):
                 })
             )
             
-        link = lightwave_smart.LWLink2()
+        link = lightwave_smart.LWLink2(client_version=client_version)
         link.auth.set_token_refresh_callback(on_token_refresh)
         
         if auth_method == "password":
@@ -254,6 +258,8 @@ async def setup_link_lw(hass, config_entry):
         else:
             link.auth.set_auth_method(auth_method=auth_method, api_key=api_key, access_token=access_token, refresh_token=refresh_token, token_expiry=token_expiry)
 
+    link.hass = hass
+    link.config_entry_id = config_entry.entry_id
     return link
 
 def remove_missing_devices_and_entities(config_entry, link, device_registry, entity_registry):

@@ -5,6 +5,7 @@ from typing import Any, Mapping
 from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv, config_entry_oauth2_flow, selector
+from homeassistant.loader import async_get_integration
 from homeassistant.const import (CONF_USERNAME, CONF_PASSWORD)
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.config_entries import (
@@ -448,7 +449,8 @@ class lightwave_smartFlowHandler(
         
         link = None
         try:
-            link = lightwave_smart.LWLink2()
+            integration = await async_get_integration(self.hass, DOMAIN)
+            link = lightwave_smart.LWLink2(client_version=integration.version)
             link.auth.set_auth_method(auth_method="password", username=username, password=password)
             
             connected = await link.async_activate(max_tries=3, force_keep_alive_secs=0, source="hass_test")

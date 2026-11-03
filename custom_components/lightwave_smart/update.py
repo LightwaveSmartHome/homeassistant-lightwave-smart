@@ -8,7 +8,7 @@ from homeassistant.components.update import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .utils import (
@@ -92,11 +92,28 @@ class LWRF2Update(UpdateEntity):
         """Update the component's state."""
         _LOGGER.debug(f"async_update_callback - Update update: {self.entity_id} - {self.entity_description.key} - {kwargs}")
         try:
+            self.installed_version = self._device.firmware_version
             self.latest_version = self._device.latest_firmware_version
             self.release_summary = self._device.latest_firmware_release_summary
+            self.in_progress = self._device.firmware_update_in_progress
+            self._update_device_sw_version()
             self.async_schedule_update_ha_state(True)
         except Exception as e: 
             _LOGGER.warning(f"async_update_callback - error - {self.entity_id} - {e}")
+
+    @callback
+    def _update_device_sw_version(self):
+        """Write the installed firmware version onto the device registry entry."""
+        config_entry_id = getattr(self._lwlink, "config_entry_id", None)
+        if not config_entry_id:
+            return
+        device_registry = dr.async_get(self.hass)
+        device_entry = device_registry.async_get_device_by_identifier(
+            (DOMAIN, self._device_id), config_entry_id
+        )
+        version = self._device.firmware_version
+        if device_entry is not None and device_entry.sw_version != version:
+            device_registry.async_update_device(device_entry.id, sw_version=version)
             
     @property
     def supported_features(self):
@@ -119,4 +136,5 @@ class LWRF2Update(UpdateEntity):
         _LOGGER.debug(f"async_install - {self.entity_id} - {version} - {backup}")
         
         self.in_progress = await self._device.update_firmware(version or self.latest_version)
+        self.async_write_ha_state()
         

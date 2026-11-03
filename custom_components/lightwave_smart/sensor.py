@@ -42,10 +42,9 @@ except ImportError:
     from homeassistant.const import (POWER_WATT, ENERGY_WATT_HOUR, ELECTRIC_POTENTIAL_VOLT, ELECTRIC_CURRENT_MILLIAMPERE)
 
 from homeassistant.core import callback
-from homeassistant.util import dt as dt_util
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.exceptions import ConfigEntryNotReady
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import pytz
 from .utils import (
     make_entity_device_info,
@@ -215,11 +214,15 @@ class LWRF2Sensor(SensorEntity):
         self._attr_unique_id = f"{self._featureset_id}_{self.entity_description.key}"
         self._attr_device_info = make_entity_device_info(self, name)
 
-        self._set_state(None)
+        self._state = None
 
     async def async_added_to_hass(self):
         """Subscribe to events."""
         await self._lwlink.async_register_feature_callback(self._featureset_id, self.async_update_callback)
+        # The startup read is a background task and can finish after __init__
+        # but before this callback is registered. Read the current value before
+        # Home Assistant writes the first state.
+        self._set_state(self._feature_state(self.entity_description.key))
 
     @callback
     def async_update_callback(self, **kwargs):
@@ -251,23 +254,65 @@ class LWRF2Sensor(SensorEntity):
         """Return the optional state attributes."""
         return get_extra_state_attributes(self)
 
+    def _feature_state(self, key):
+        feature = self._featureset.features.get(key)
+        return None if feature is None else feature.state
+
     def _set_state(self, state):
+        if self.entity_description.key in ("dawnTime", "duskTime"):
+            converted = self._dawn_dusk_datetime(state)
+            # A later read can arrive before year/month/day. Keep a timestamp
+            # we already have rather than replacing it with unknown.
+            if converted is None and state is not None and self._state is not None:
+                return
+            self._state = converted
+            return
+
         self._state = state
-        
-        if self.entity_description.key == 'duskTime' or self.entity_description.key == 'dawnTime':
-            month = self._featureset.features['month'].state
-            year = self._featureset.features['year'].state
-            day = self._featureset.features['day'].state
-            
-            if month is None or year is None or day is None:
-                self._state = datetime.now(pytz.utc)
-            elif self._state is not None:
-                hour = self._state // 3600
-                self._state = self._state - hour * 3600
-                min = self._state // 60
-                second = self._state - min * 60
-                self._state = dt_util.parse_datetime(f'{year}-{month:02}-{day:02}T{hour:02}:{min:02}:{second:02}Z')
-        
+
+    def _dawn_dusk_datetime(self, seconds):
+        """Return the hub dawn or dusk instant.
+
+        The feature is seconds since the hub's local midnight. It is combined
+        with the hub year, month, and day and stored as that clock time in UTC,
+        which is the real instant when the hub timezone offset is 0.
+        """
+        if seconds is None:
+            return None
+
+        year = self._feature_state("year")
+        month = self._feature_state("month")
+        day = self._feature_state("day")
+        if year is None or month is None or day is None:
+            return None
+
+        try:
+            seconds = int(seconds)
+            start = datetime(int(year), int(month), int(day), tzinfo=timezone.utc)
+        except (TypeError, ValueError):
+            _LOGGER.debug(
+                "Could not convert %s for %s from seconds=%s year=%s month=%s day=%s",
+                self.entity_description.key,
+                self._featureset_id,
+                seconds,
+                year,
+                month,
+                day,
+            )
+            return None
+
+        # Firmware range is 0–86400. 86400 is midnight at the end of the hub's day.
+        if seconds < 0 or seconds > 86400:
+            _LOGGER.debug(
+                "Ignoring %s value %s for %s; expected seconds since midnight",
+                self.entity_description.key,
+                seconds,
+                self._featureset_id,
+            )
+            return None
+
+        return start + timedelta(seconds=seconds)
+
 
 class LWRF2EventSensor(SensorEntity):
     """Representation of a LightwaveRF sensor."""

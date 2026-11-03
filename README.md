@@ -56,6 +56,8 @@ Note: initially only the hub may show as the entities are created in the backgro
 ## Usage
 Once configured all switches, lights, thermostats, TRVs, blinds/covers, sensors, wirefrees ("Wire-Free Scene Selectors"), energy monitors etc that are configured in your Lightwave app will be added to Home Assistant.
 
+Smart LED strip drivers (L84V24) are added as lights. The controls follow the function set in the Lightwave app: White is brightness only, RGB and RGB with White use hue and saturation, and Warm White Cool White uses colour temperature (2000K to 9800K).
+
 If you add a new device you can reload the integration (Configuration -> Integrations -> Lightwave Smart -> Options -> Reload) or Restart Home Assistant to see the new devices, alternatively remove and re-add the integration.
 
 Various sensor entities (including power consumption) and controls for the button lock and status LED are exposed within the corresponding entities.
