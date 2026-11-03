@@ -3,6 +3,7 @@
     "common": {
     },
     "config": {
+        "flow_title": "{name}",
         "step": {
             "pick_implementation": {
                 "title": "[%key:common::config_flow::title::oauth2_pick_implementation%]"
@@ -10,14 +11,14 @@
         
             "lightwave_auth_method": {
                 "title": "Lightwave Smart Configuration",
-                "description": "Choose your authentication method.\n\n**Note:** Both 'Refresh Token' and 'Password Authentication' require a username and password.\n'Refresh Token' however does not store the password and is preferred over 'Password Authentication'",
+                "description": "{discovered_hub}Choose your authentication method.\n\n**Note:** Both 'Refresh Token' and 'Password Authentication' require a username and password.\n'Refresh Token' however does not store the password and is preferred over 'Password Authentication'",
                 "data": {
                     "lightwave_auth_method": "Authentication method"
                 }
             },
             "user": {
                 "title": "Lightwave Smart - Password Authentication Configuration",
-                "description": "Enter your Lightwave credentials",
+                "description": "{discovered_hub}Enter your Lightwave credentials",
                 "data": {
                     "username": "Username (Email)",
                     "password": "Password",
@@ -39,7 +40,7 @@
             },
             "oauth_auth_method": {
                 "title": "Lightwave Smart - Account Linking Configuration",
-                "description": "You will be redirected to Lightwave to authorize the integration. Once authorized, you will be redirected back to Home Assistant to complete the setup.",
+                "description": "{discovered_hub}You will be redirected to Lightwave to authorize the integration. Once authorized, you will be redirected back to Home Assistant to complete the setup.",
                 "data": {
                 },
                 "data_description": {

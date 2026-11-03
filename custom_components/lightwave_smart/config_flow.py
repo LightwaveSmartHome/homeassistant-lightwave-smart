@@ -37,6 +37,48 @@ from .auth import get_api_scopes
 
 _LOGGER = logging.getLogger(__name__)
 
+_ZEROCONF_SERVICE_TYPE = "_lightwave._tcp.local."
+
+
+def _zeroconf_hub_name(discovery_info: ZeroconfServiceInfo) -> str:
+    """Return the advertised hub name without the service type suffix."""
+    name = (discovery_info.name or "").strip().rstrip(".")
+    service_type = (discovery_info.type or _ZEROCONF_SERVICE_TYPE).strip(".")
+    suffix = f".{service_type}" if service_type else ""
+    if suffix and name.endswith(suffix):
+        name = name[: -len(suffix)]
+    return name or "Lightwave Link Plus"
+
+
+def _zeroconf_cloud_id(discovery_info: ZeroconfServiceInfo) -> str | None:
+    """Return the Link Plus cloud number from the mDNS txt record."""
+    raw = (discovery_info.properties or {}).get("id")
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8", "replace")
+    if raw is None:
+        return None
+    cloud_id = str(raw).strip()
+    return cloud_id or None
+
+
+def _zeroconf_flow_title(discovery_info: ZeroconfServiceInfo) -> str:
+    """Return the discovery title with the cloud number shown once.
+
+    The mDNS name ends with a short form of the cloud number, for example
+    "Lightwave Link Plus 310BD2" when the cloud number is BC310BD2.
+    """
+    name = _zeroconf_hub_name(discovery_info)
+    cloud_id = _zeroconf_cloud_id(discovery_info)
+    if not cloud_id:
+        return name
+    base, _, short_id = name.rpartition(" ")
+    if short_id and (short_id == cloud_id or cloud_id.endswith(short_id)):
+        name = base
+    if not name or name == cloud_id:
+        return cloud_id
+    return f"{name} ({cloud_id})"
+
+
 AUTH_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_LW_AUTH_METHOD): selector.SelectSelector(
@@ -127,6 +169,7 @@ class lightwave_smartFlowHandler(
     reauth_entry: ConfigEntry | None = None
     
     _user_input = None
+    _discovered_cloud_id: str | None = None
     
     @property
     def logger(self):
@@ -242,10 +285,14 @@ class lightwave_smartFlowHandler(
     async def _get_user_input(self, step_id, user_input: dict, data_schema: vol.Schema, base_code: str = None):
         _LOGGER.debug(f"_get_user_input - step_id: {step_id} - user_input: {user_input} - base_code: {base_code} - data_schema: {data_schema}")
         
+        discovered_hub = ""
+        if self._discovered_cloud_id:
+            discovered_hub = f"Cloud number: {self._discovered_cloud_id}\n\n"
         return self.async_show_form(
             step_id=step_id,
             data_schema=data_schema,
             errors=base_code and {"base": base_code} or None,
+            description_placeholders={"discovered_hub": discovered_hub},
         )    
 
 
@@ -300,9 +347,13 @@ class lightwave_smartFlowHandler(
         """Handle zeroconf discovery."""
         _LOGGER.debug("async_step_zeroconf: %s", discovery_info)
 
-        # Check if already configured
+        # Check if already configured. A second hub uses the same unique id,
+        # so another discovery flow aborts while this one is open.
         await self.async_set_unique_id(DOMAIN)
         self._abort_if_unique_id_configured()
+
+        self._discovered_cloud_id = _zeroconf_cloud_id(discovery_info)
+        self.context["title_placeholders"] = {"name": _zeroconf_flow_title(discovery_info)}
 
         return await self.async_step_user()
 
@@ -351,7 +402,9 @@ class lightwave_smartFlowHandler(
                 
             _LOGGER.debug(f"async_step_user - Completed - user_input: {user_input} - unique_id: {unique_id} - title: {title} - existing_entry: {'Existing Entry Replaced' if existing_entry is not None else 'None'}")
             
-            await self.async_set_unique_id(unique_id)
+            # A discovered hub keeps a flow open with this unique id. Allow this
+            # setup to finish, and Home Assistant clears that waiting flow.
+            await self.async_set_unique_id(unique_id, raise_on_progress=False)
             return self.async_create_entry(title=title, data=user_input)
 
         return result
@@ -435,7 +488,7 @@ class lightwave_smartFlowHandler(
             return self.async_abort(reason=reason)
         
         
-        await self.async_set_unique_id(DOMAIN)
+        await self.async_set_unique_id(DOMAIN, raise_on_progress=False)
         return await super().async_oauth_create_entry(data)
 
     async def async_step_reconfigure(self, user_input: dict[str, any] | None = None):
