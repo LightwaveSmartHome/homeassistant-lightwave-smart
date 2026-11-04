@@ -9,6 +9,6 @@
   "iot_class": "cloud_push",
   "issue_tracker": "https://github.com/LightwaveSmartHome/homeassistant-lightwave-smart/issues?q=is%3Aopen+is%3Aissue",
   "loggers": ["custom_components.lightwave_smart", "lightwave_smart"],
-  "requirements": ["lightwave_smart==2.0.4"],
-  "version": "5.0.10-Beta"
+  "requirements": ["lightwave_smart==2.0.5"],
+  "version": "5.0.11-Beta"
 }
