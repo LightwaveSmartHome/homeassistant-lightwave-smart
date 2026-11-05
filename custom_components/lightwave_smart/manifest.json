@@ -13,5 +13,5 @@
   ],
   "loggers": ["custom_components.lightwave_smart", "lightwave_smart"],
   "requirements": ["lightwave_smart==2.0.5"],
-  "version": "5.0.13-Beta"
+  "version": "5.0.14-Beta"
 }
