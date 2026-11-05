@@ -129,7 +129,6 @@ class LWRF2Climate(ClimateEntity):
         self._target_temperature = self._target_temperature / 10 if self._target_temperature is not None else None
 
         self._last_tt = self._target_temperature  # Used to store the target temperature to revert to after boosting
-        self._temperature_scale = TEMP_CELSIUS
 
         if self._has_humidity:
             self._humidity = self._featureset.features["humidity"].state
@@ -164,15 +163,31 @@ class LWRF2Climate(ClimateEntity):
         """Return the list of supported features."""
         return self._support_flags
 
-    @property
-    def temperature_unit(self):
-        """Return the unit of measurement."""
-        return self._temperature_scale
+    # 2026.11 reads native_* temperatures. Older cores still use the old names.
+    if "native_temperature_unit" in vars(ClimateEntity):
+        _attr_native_temperature_unit = TEMP_CELSIUS
 
-    @property
-    def current_temperature(self):
-        """Return the current temperature."""
-        return self._temperature
+        @property
+        def native_current_temperature(self):
+            """Return the current temperature."""
+            return self._temperature
+
+        @property
+        def native_target_temperature(self):
+            """Return the temperature we try to reach."""
+            return self._target_temperature
+    else:
+        _attr_temperature_unit = TEMP_CELSIUS
+
+        @property
+        def current_temperature(self):
+            """Return the current temperature."""
+            return self._temperature
+
+        @property
+        def target_temperature(self):
+            """Return the temperature we try to reach."""
+            return self._target_temperature
 
     @property
     def current_humidity(self):
@@ -206,11 +221,6 @@ class LWRF2Climate(ClimateEntity):
             return CURRENT_HVAC_HEAT
         else:
             return CURRENT_HVAC_IDLE
-
-    @property
-    def target_temperature(self):
-        """Return the temperature we try to reach."""
-        return self._target_temperature
 
     @property
     def target_humidity(self):
