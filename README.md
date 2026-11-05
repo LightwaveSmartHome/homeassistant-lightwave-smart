@@ -1,80 +1,90 @@
-# Discussions
-
-If you have questions or comment, please see [discussions](https://github.com/LightwaveSmartHome/homeassistant-lightwave-smart/discussions)
-
-If you have noticed a bug please check for any existing open issue and add to that or open a new [issue](https://github.com/LightwaveSmartHome/homeassistant-lightwave-smart/issues)
-
-PRs are most welcome, if you see something that could be improved please consider making a pull request, including improvements to the readme, adding examples or other guidance.
-
-If you would like to help maintain this project (review pull requests, and keep an eye on discussions and issues), send a direct message or email to any current maintainer or open a discussion.
-
 # Lightwave Smart
 
-Home Assistant (https://www.home-assistant.io/) component for controlling Lightwave (https://lightwaverf.com) devices with use of a Lightwave [Link Plus hub](https://shop.lightwaverf.com/collections/all/products/link-plus). 
+Home Assistant integration for controlling [Lightwave](https://lightwaverf.com) devices that use a Lightwave [Link Plus hub](https://lightwaverf.com/collections/all/products/link-plus).
 
-Controls both Connect Series (generation 1) and Smart Series (generation 2) devices. Does not work with Connect Series hubs (aka Lightwave Link / WiFi Link).
+Controls both Connect Series (generation 1) and Smart Series (generation 2) devices. Does not work with Connect Series hubs (Lightwave Link / WiFi Link).
 
-*Note: Entities are created differently from the [original version of this integration - Lightwave2](https://github.com/bigbadblunt/homeassistant-lightwave2), in that regard this version is a breaking change* 
+Entities are created differently from the [original Lightwave2 integration](https://github.com/bigbadblunt/homeassistant-lightwave2). Moving from that integration is a breaking change.
 
-## Setup
-There are two ways to set up:
+<!-- ha-marketplace:exclude-start -->
+## Installation
 
-#### 1. HACS (preferred)
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=LightwaveSmartHome&repository=homeassistant-lightwave-smart&category=integration)
 
-This component is available through the Home Assistant Community Store HACS (https://www.hacs.xyz/).
+### Home Assistant 2026.11 or newer
 
-Using this method makes it simple to update your component to the latest version.
+Open Settings > Marketplace, search for "Lightwave Smart", and select Install. Setup opens when installation finishes.
 
-Once HACS is installed, search HACS for "Lightwave Smart" (update HACS if necessary).
+Home Assistant 2026.11 and newer already includes the Marketplace. If you already installed this through HACS, leave it in place. Home Assistant moves it to the Marketplace when it starts after the update, and your devices stay.
 
-#### 2. HACS via Custom repositories (alternative)
-It can also be installed manually using HACS via "Custom repositories" using the repository url (https://github.com/LightwaveSmartHome/homeassistant-lightwave-smart), setting Category "Integration" - see:
+If it does not appear in search, select Add from link in the upper-right of the Marketplace and enter `https://github.com/LightwaveSmartHome/homeassistant-lightwave-smart`. Adding from a link needs a GitHub account connected in the Marketplace.
 
-<img src="https://lightwave-public-files.s3.eu-west-1.amazonaws.com/home-assistant/LightwaveSmartHomehomeassistant-lightwave-smart.png" width="400" alt="HACS Installation">
+### Home Assistant 2026.10 or older
 
+Install [HACS](https://www.hacs.xyz/), then search HACS for "Lightwave Smart".
 
-#### 3. Manual
-Copy all files and folders from custom_components/lightwave_smart to a `<ha_config_dir>/custom_components/lightwave_smart` directory. (i.e. you should have `<ha_config_dir>/custom_components/lightwave_smart/__init__.py`, `<ha_config_dir>/custom_components/lightwave_smart/switch.py`, `<ha_config_dir>/custom_components/lightwave_smart/translations/en.json` etc)
+It can also be added in HACS as a custom repository. Use the repository URL `https://github.com/LightwaveSmartHome/homeassistant-lightwave-smart` and set the category to Integration:
+
+<img src="https://lightwave-public-files.s3.eu-west-1.amazonaws.com/home-assistant/LightwaveSmartHomehomeassistant-lightwave-smart.png" width="400" alt="HACS custom repository">
+
+### Manual
+
+Copy all files and folders from `custom_components/lightwave_smart` to `<ha_config_dir>/custom_components/lightwave_smart`. You should then have `<ha_config_dir>/custom_components/lightwave_smart/__init__.py`, `<ha_config_dir>/custom_components/lightwave_smart/switch.py`, `<ha_config_dir>/custom_components/lightwave_smart/translations/en.json`, and the rest of the integration files.
 
 The latest version is at https://github.com/LightwaveSmartHome/homeassistant-lightwave-smart/releases/latest
 
-If you use this method then you'll need to keep an eye on this repository to check for updates.
+If you install this way, check this repository yourself for updates.
+
+<!-- ha-marketplace:exclude-end -->
 
 ## Configuration
-In Home Assistant:
 
-1. Enter configuration menu
-2. Select "Integrations"
-3. Click the "+" in the bottom right
-4. Choose "Lightwave Smart"
-5. Select authentication method
-6. Enter username and password
+On Home Assistant 2026.11 or newer, installing from the Marketplace opens setup. If you closed it, or you are on an older Home Assistant, add it yourself:
 
-Entities for all your devices will be created in Home Assistant.
+1. Go to Settings > Devices & services
+2. Select Add integration
+3. Search for Lightwave Smart
+4. Choose Refresh Token. Password Authentication is the other method.
+5. Enter your username (email) and password
 
-Note: initially only the hub may show as the entities are created in the background, if you navigate back to the overview all your devices should appear there within a few seconds.
+Refresh Token does not store the password. Password Authentication does. Instance name is optional. If you leave it blank, your username is used.
+
+Entities for all your devices will be created in Home Assistant. Only one Lightwave account can be set up.
+
+At first only the hub may show, because the other entities are created in the background. Go back to the overview and your devices should appear within a few seconds.
+
+The integration options include Hide entities from HomeKit. When that is on, generation 2 switches, lights, and button events are hidden, and so are binary sensors and firmware updates. Thermostats, covers, locks, sensors, and indicator LEDs stay visible. Hidden entities are hidden in Home Assistant, which keeps them out of HomeKit. Reload is on the three-dot menu of the integration, not in those options.
+
+## Updates
+
+The Marketplace and HACS install the latest stable release. Beta versions are pre-releases. To receive those, turn on Pre-release for this repository. In the Marketplace that switch is on this repository's device under Settings > Devices & services > Marketplace. After an update, restart Home Assistant. The Marketplace raises a repair that can restart it for you.
 
 ## Usage
 Once configured all switches, lights, thermostats, TRVs, blinds/covers, sensors, wirefrees ("Wire-Free Scene Selectors"), energy monitors etc that are configured in your Lightwave app will be added to Home Assistant.
 
 Smart LED strip drivers (L84V24) are added as lights. The controls follow the function set in the Lightwave app: White is brightness only, RGB and RGB with White use hue and saturation, and Warm White Cool White uses colour temperature (2000K to 9800K).
 
-If you add a new device you can reload the integration (Configuration -> Integrations -> Lightwave Smart -> Options -> Reload) or Restart Home Assistant to see the new devices, alternatively remove and re-add the integration.
+If you add a new device you can reload the integration (Settings > Devices & services > Lightwave Smart > three-dot menu > Reload) or restart Home Assistant to see the new devices, alternatively remove and re-add the integration.
 
-Various sensor entities (including power consumption) and controls for the button lock and status LED are exposed within the corresponding entities.
+Sensors, including power consumption, are added with the device. The button lock is a Lock entity on the device. Status LEDs are lights on the device: one Off LED, shared across the gangs of a multi-gang device, or an On LED Indicator and an Off LED Indicator on each gang of an MK4 dimmer.
 
-All other attributes reported by the Lightwave devices are exposed with the names `lwrf_*`. These are all read-only.
+Every feature reported by a Lightwave device is also exposed as a read-only attribute named `lwrf_*`, including features that already have their own entity.
 
-For gen2 devices, the brightness can be set without turning the light on using `lightwave_smart.set_brightness`.
+For generation 2 lights, the brightness can be set without turning the light on using `lightwave_smart.set_brightness`. Brightness is 0 to 255.
+
+Generation 2 devices have a firmware update entity, and that entity can install an update.
 
 ## Firmware 5+ 
 
 ### UI Button Events
 
-Switches generate events when pressed which are independent of any other default or mapped behaviour.
+Button presses are event entities, separate from the switch or light turning on.
 
-For example pressing the down button twice on a dimmer or wirefree will generate the event "Down.Short.2"
-Whereas pressing a button once on a socket (eg L42) will generate a "Short.1" event as there is no up/down element to these buttons.
+A socket (for example an L42) is a Smart Switch. Its events are `Short.1` to `Short.5`, `Long`, and `Long-Release`. Pressing the button once is `Short.1`.
+
+A dimmer or wirefree is a Smart Switch Pair. The same events are prefixed with `Up.` or `Down.`. Pressing the down button twice is `Down.Short.2`.
+
+The automation editor offers those event types.
 
 Example of how this can be used in an Entity automation:
 
@@ -107,17 +117,27 @@ Code|Hex|Meaning
 
 For sockets the codes are the "up button" versions.
 
-### Service calls
+## Service calls
 
 `lightwave_smart.reset_enabled_status_to_defaults`: Resets all device/entity enabled statuses to defaults
 
-#### Deprecated Services
+### Deprecated Services
 
 Improved connection and state management means the following services should no longer be required.  If you experience problems with connectivity or device states please open an issue [here](https://github.com/LightwaveSmartHome/homeassistant-lightwave-smart/issues).
 
 `lightwave_smart.reconnect`: Force a reconnect to the Lightwave backend
 
 `lightwave_smart.update_states`: Force a read of all device states
+
+## Help
+
+If you have questions or comments, please see [discussions](https://github.com/LightwaveSmartHome/homeassistant-lightwave-smart/discussions).
+
+If you have noticed a bug, please check for an existing open issue and add to that, or open a new [issue](https://github.com/LightwaveSmartHome/homeassistant-lightwave-smart/issues).
+
+PRs are most welcome. If you see something that could be improved, please consider a pull request, including improvements to the readme, examples, or other guidance.
+
+If you would like to help maintain this project (review pull requests, and keep an eye on discussions and issues), send a direct message or email to any current maintainer, or open a discussion.
 
 ## Thanks
 Credit to Bryan Blunt for the original version https://github.com/bigbadblunt/homeassistant-lightwave2
