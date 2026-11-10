@@ -24,7 +24,7 @@ _LOGGER = logging.getLogger(__name__)
 
 # Define supported platforms
 PLATFORMS_FIRMWARE = ["update"]
-PLATFORMS = ["switch", "light", "climate", "cover", "binary_sensor", "sensor", "lock", "event"]
+PLATFORMS = ["switch", "light", "climate", "cover", "binary_sensor", "sensor", "lock", "event", "select"]
 
 def async_central_callback(**kwargs):
     _LOGGER.debug("Central callback")
