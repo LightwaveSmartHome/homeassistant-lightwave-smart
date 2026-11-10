@@ -57,8 +57,6 @@ DEPENDENCIES = ['lightwave_smart']
 _LOGGER = logging.getLogger(__name__)
 
 
-SENSORS_PRIMARY_TYPES = ["energy"]
-
 SENSORS_PRIMARY = [
     SensorEntityDescription(
         key="power",
@@ -74,25 +72,6 @@ SENSORS_PRIMARY = [
         state_class=STATE_CLASS_TOTAL_INCREASING,
         name="Total Consumption",
     )
-]
-
-SENSORS_SECONDARY = [
-    SensorEntityDescription(
-        key="power",
-        native_unit_of_measurement=POWER_WATT,
-        device_class=DEVICE_CLASS_POWER,
-        state_class=STATE_CLASS_MEASUREMENT,
-        name="Current Consumption",
-        entity_category=EntityCategory.DIAGNOSTIC,
-    ),
-    SensorEntityDescription(
-        key="energy",
-        native_unit_of_measurement=ENERGY_WATT_HOUR,
-        device_class=DEVICE_CLASS_ENERGY,
-        state_class=STATE_CLASS_TOTAL_INCREASING,
-        name="Total Consumption",
-        entity_category=EntityCategory.DIAGNOSTIC,
-    ),
 ]
 
 SENSORS_DIAGNOSTIC = [
@@ -163,15 +142,10 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     link = hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_LINK2]
 
     for featureset_id, featureset in link.featuresets.items():
-        if featureset.primary_feature_type in SENSORS_PRIMARY_TYPES:
-            for description in SENSORS_PRIMARY:
-                if featureset.has_feature(description.key):
-                    sensors.append(LWRF2Sensor(featureset.name, featureset_id, link, description, hass))
-        else:
-            for description in SENSORS_SECONDARY:
-                if featureset.has_feature(description.key):
-                    sensors.append(LWRF2Sensor(featureset.name, featureset_id, link, description, hass))
-                
+        for description in SENSORS_PRIMARY:
+            if featureset.has_feature(description.key):
+                sensors.append(LWRF2Sensor(featureset.name, featureset_id, link, description, hass))
+
         for description in SENSORS_DIAGNOSTIC:
             if featureset.has_feature(description.key):
                 sensors.append(LWRF2Sensor(featureset.name, featureset_id, link, description, hass))

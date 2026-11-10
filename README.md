@@ -68,7 +68,7 @@ Smart LED strip drivers (L84V24) are added as lights. The controls follow the fu
 
 If you add a new device you can reload the integration (Settings > Devices & services > Lightwave Smart > three-dot menu > Reload) or restart Home Assistant to see the new devices, alternatively remove and re-add the integration.
 
-Sensors, including power consumption, are added with the device. The button lock is a Lock entity on the device. Status LEDs are lights on the device: one Off LED, shared across the gangs of a multi-gang device, or an On LED Indicator and an Off LED Indicator on each gang of an MK4 dimmer.
+Sensors, including power consumption, are added with the device. Power and energy are shown with the other controls, including on sockets and dimmers. The button lock is a Lock entity on the device. Status LEDs are lights on the device: one Off LED, shared across the gangs of a multi-gang device, or an On LED Indicator and an Off LED Indicator on each gang of an MK4 dimmer.
 
 Every feature reported by a Lightwave device is also exposed as a read-only attribute named `lwrf_*`, including features that already have their own entity.
 
