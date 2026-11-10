@@ -76,6 +76,8 @@ For generation 2 lights, the brightness can be set without turning the light on 
 
 Generation 2 devices have a firmware update entity, and that entity can install an update.
 
+Each hub has a Cloud Link sensor. If the connection drops after it has been up, Home Assistant raises a repair and removes it when the link connects again. That sensor stays visible when Hide entities from HomeKit is on.
+
 ## Firmware 5+ 
 
 ### UI Button Events

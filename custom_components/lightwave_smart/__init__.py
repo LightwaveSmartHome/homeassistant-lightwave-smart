@@ -12,6 +12,7 @@ from homeassistant.loader import async_get_integration
 from homeassistant.helpers import (
     device_registry as dr,
     entity_registry as er,
+    issue_registry as ir,
     config_validation as cv,
     config_entry_oauth2_flow,
     aiohttp_client,
@@ -28,6 +29,23 @@ PLATFORMS = ["switch", "light", "climate", "cover", "binary_sensor", "sensor", "
 
 def async_central_callback(**kwargs):
     _LOGGER.debug("Central callback")
+
+def _link_issue_id(entry_id):
+    return f"{entry_id}_link_disconnected"
+
+def _clear_link_issue(hass, entry_id):
+    ir.async_delete_issue(hass, DOMAIN, _link_issue_id(entry_id))
+
+def _raise_link_issue(hass, entry_id):
+    """Repair for a drop after the link has been up. Startup does not call this."""
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        _link_issue_id(entry_id),
+        is_fixable=False,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key="link_disconnected",
+    )
 
 async def async_setup(hass, config):
     
@@ -104,6 +122,18 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
     config_entry.async_on_unload(config_entry.add_update_listener(reload_lw))
     
     link = await setup_link_lw(hass, config_entry)
+    entry_id = config_entry.entry_id
+
+    def _on_link_disconnect():
+        if entry_id not in hass.data.get(DOMAIN, {}):
+            return
+        _raise_link_issue(hass, entry_id)
+
+    def _on_link_connect():
+        _clear_link_issue(hass, entry_id)
+
+    link.register_disconnect_callback(_on_link_disconnect)
+    link.register_connect_callback(_on_link_connect)
     try:
         connected = await link.async_activate(source="hass", connect_callback=link.async_get_hierarchy)
         if not connected:
@@ -152,6 +182,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
 async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry, source: str = "unload") -> bool:
     """Unload a config entry."""
     _LOGGER.info(f"Unloading config entry: '{config_entry.entry_id}' from {source}")
+    _clear_link_issue(hass, config_entry.entry_id)
     
     # Check if the config entry was actually loaded
     if config_entry.entry_id not in hass.data.get(DOMAIN, {}):

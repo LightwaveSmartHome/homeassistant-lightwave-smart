@@ -8,8 +8,11 @@ try:
     DEVICE_CLASS_PLUG = BinarySensorDeviceClass.PLUG
     DEVICE_CLASS_MOTION = BinarySensorDeviceClass.MOTION
     DEVICE_CLASS_HEAT = BinarySensorDeviceClass.HEAT
+    DEVICE_CLASS_CONNECTIVITY = BinarySensorDeviceClass.CONNECTIVITY
 except ImportError:
-    from homeassistant.components.binary_sensor import (DEVICE_CLASS_WINDOW, DEVICE_CLASS_PLUG, DEVICE_CLASS_MOTION, DEVICE_CLASS_HEAT)
+    from homeassistant.components.binary_sensor import (
+        DEVICE_CLASS_WINDOW, DEVICE_CLASS_PLUG, DEVICE_CLASS_MOTION, DEVICE_CLASS_HEAT, DEVICE_CLASS_CONNECTIVITY
+    )
 from homeassistant.core import callback
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers import entity_registry as er
@@ -64,6 +67,12 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                     sensors.append(LWRF2BinarySensor(featureset.name, featureset_id, link, description, homekit))
                 except Exception as e: _LOGGER.exception("Could not add LWRF2BinarySensor")
     
+    for featureset_id, hubname in link.get_hubs():
+        try:
+            sensors.append(LWRF2LinkBinarySensor(hubname, featureset_id, link))
+        except Exception:
+            _LOGGER.exception("Could not add LWRF2LinkBinarySensor")
+
     hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_ENTITIES].extend(sensors)
     async_add_entities(sensors)
 
@@ -126,6 +135,57 @@ class LWRF2BinarySensor(BinarySensorEntity):
     def is_on(self):
         """Lightwave switch is on state."""
         return self._state
+
+    @property
+    def extra_state_attributes(self):
+        """Return the optional state attributes."""
+        return get_extra_state_attributes(self)
+
+
+class LWRF2LinkBinarySensor(BinarySensorEntity):
+    """Cloud link for a hub. Not hidden by the HomeKit option."""
+
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+    _attr_device_class = DEVICE_CLASS_CONNECTIVITY
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_name = "Cloud Link"
+
+    def __init__(self, name, featureset_id, link):
+        _LOGGER.debug("Adding cloud link sensor %s - %s", name, featureset_id)
+        self._featureset_id = featureset_id
+        self._lwlink = link
+
+        self.entity_description = BinarySensorEntityDescription(
+            key="cloudLink",
+            name="Cloud Link",
+            device_class=DEVICE_CLASS_CONNECTIVITY,
+            entity_category=EntityCategory.DIAGNOSTIC,
+        )
+
+        self._featureset = self._lwlink.featuresets[self._featureset_id]
+        self._device = self._featureset.device
+
+        self._gen2 = self._featureset.is_gen2()
+        self._attr_assumed_state = False
+
+        self._attr_unique_id = f"{self._featureset_id}_cloudLink"
+        self._attr_device_info = make_entity_device_info(self, name)
+
+    async def async_added_to_hass(self):
+        """Subscribe to link up and down. Do not apply the HomeKit hide."""
+        self._lwlink.register_connect_callback(self._async_link_changed)
+        self._lwlink.register_disconnect_callback(self._async_link_changed)
+
+    @callback
+    def _async_link_changed(self):
+        """Update after the websocket connects or drops."""
+        self.async_schedule_update_ha_state()
+
+    @property
+    def is_on(self):
+        """Return True while the Lightwave websocket session is up."""
+        return bool(self._lwlink.connected)
 
     @property
     def extra_state_attributes(self):

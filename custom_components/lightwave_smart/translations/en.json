@@ -101,6 +101,12 @@
             "description": "This will reset entities enabled statuses to defaults"
         }
     },
+    "issues": {
+        "link_disconnected": {
+            "title": "Lightwave connection lost",
+            "description": "Home Assistant lost the connection to Lightwave after it had been up. The link reconnects on its own. This repair is removed when the connection is back."
+        }
+    },
     "application_credentials": {
         "description": "Link your Lightwave account to your Home Assistant account."
     },
