@@ -19,11 +19,14 @@ from .utils import (
 DEPENDENCIES = ['lightwave_smart']
 _LOGGER = logging.getLogger(__name__)
 
+# threeWayRelay: 1 open, 2 close, 0 stop. The relay does not report position.
+_RELAY_OPEN = 1
+_RELAY_CLOSE = 2
+
 COVER = CoverEntityDescription(
     key="cover",
     name=None,
-    # translation_key="curtain",
-    # device_class=CoverDeviceClass.CURTAIN,    
+    device_class=CoverDeviceClass.BLIND,
 )
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
@@ -64,9 +67,15 @@ class LWRF2Cover(CoverEntity):
         self._attr_unique_id = f"{self._featureset_id}_{self.entity_description.key}"
         self._attr_device_info = make_entity_device_info(self, name)
 
-        
-        self._state = 50
-
+    def _relay(self):
+        """Return threeWayRelay as an int, or None when it has not been read."""
+        feature = self._featureset.features.get("threeWayRelay")
+        if feature is None or feature.state is None:
+            return None
+        try:
+            return int(feature.state)
+        except (TypeError, ValueError):
+            return None
 
     async def async_added_to_hass(self):
         """Subscribe to events."""
@@ -83,19 +92,27 @@ class LWRF2Cover(CoverEntity):
         return SUPPORT_OPEN | SUPPORT_CLOSE | SUPPORT_STOP
 
     async def async_update(self):
-        """Update state"""
-        self._state = 50
+        """State is read from threeWayRelay when Home Assistant asks."""
 
     @property
     def current_cover_position(self):
-        """Lightwave cover position."""
-        return self._state
+        """Lightwave covers do not report a position."""
+        return None
+
+    @property
+    def is_opening(self):
+        """Return if the cover is opening."""
+        return self._relay() == _RELAY_OPEN
+
+    @property
+    def is_closing(self):
+        """Return if the cover is closing."""
+        return self._relay() == _RELAY_CLOSE
 
     @property
     def is_closed(self):
-        """Return if the cover is closed."""
-        is_closed = None
-        return is_closed
+        """The relay does not report whether the cover is closed."""
+        return None
 
     async def async_open_cover(self, **kwargs):
         """Open the Lightwave cover."""

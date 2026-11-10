@@ -62,6 +62,8 @@ The Marketplace and HACS install the latest stable release. Beta versions are pr
 ## Usage
 Once configured all switches, lights, thermostats, TRVs, blinds/covers, sensors, wirefrees ("Wire-Free Scene Selectors"), energy monitors etc that are configured in your Lightwave app will be added to Home Assistant.
 
+Blinds open, close, and stop. They show as opening or closing while the relay is moving. They do not report a position or whether they are closed.
+
 Smart LED strip drivers (L84V24) are added as lights. The controls follow the function set in the Lightwave app: White is brightness only, RGB and RGB with White use hue and saturation, and Warm White Cool White uses colour temperature (2000K to 9800K).
 
 If you add a new device you can reload the integration (Settings > Devices & services > Lightwave Smart > three-dot menu > Reload) or restart Home Assistant to see the new devices, alternatively remove and re-add the integration.
