@@ -17,21 +17,30 @@ try:
     DEVICE_CLASS_ILLUMINANCE = SensorDeviceClass.ILLUMINANCE
     DEVICE_CLASS_POWER = SensorDeviceClass.POWER
     DEVICE_CLASS_SIGNAL_STRENGTH = SensorDeviceClass.SIGNAL_STRENGTH
+    DEVICE_CLASS_TEMPERATURE = SensorDeviceClass.TEMPERATURE
     DEVICE_CLASS_TIMESTAMP = SensorDeviceClass.TIMESTAMP
     DEVICE_CLASS_VOLTAGE = SensorDeviceClass.VOLTAGE
+    DEVICE_CLASS_HUMIDITY = SensorDeviceClass.HUMIDITY
 except ImportError:
     from homeassistant.components.sensor import (
         DEVICE_CLASS_BATTERY, 
         DEVICE_CLASS_CURRENT, 
         DEVICE_CLASS_ENERGY, 
+        DEVICE_CLASS_HUMIDITY,
         DEVICE_CLASS_ILLUMINANCE, 
         DEVICE_CLASS_POWER, 
         DEVICE_CLASS_SIGNAL_STRENGTH, 
+        DEVICE_CLASS_TEMPERATURE,
         DEVICE_CLASS_TIMESTAMP, 
         DEVICE_CLASS_VOLTAGE
     )
 # Units
 from homeassistant.const import PERCENTAGE, SIGNAL_STRENGTH_DECIBELS_MILLIWATT, LIGHT_LUX
+try:
+    from homeassistant.const import UnitOfTemperature
+    TEMP_CELSIUS = UnitOfTemperature.CELSIUS
+except ImportError:
+    from homeassistant.const import TEMP_CELSIUS
 try:
     from homeassistant.const import UnitOfElectricCurrent, UnitOfElectricPotential, UnitOfEnergy, UnitOfPower
     ELECTRIC_CURRENT_MILLIAMPERE = UnitOfElectricCurrent.MILLIAMPERE
@@ -72,6 +81,29 @@ SENSORS_PRIMARY = [
         state_class=STATE_CLASS_TOTAL_INCREASING,
         name="Total Consumption",
     )
+]
+
+SENSORS_CLIMATE = [
+    SensorEntityDescription(
+        key="temperature",
+        native_unit_of_measurement=TEMP_CELSIUS,
+        device_class=DEVICE_CLASS_TEMPERATURE,
+        state_class=STATE_CLASS_MEASUREMENT,
+        name="Temperature",
+    ),
+    SensorEntityDescription(
+        key="humidity",
+        native_unit_of_measurement=PERCENTAGE,
+        device_class=DEVICE_CLASS_HUMIDITY,
+        state_class=STATE_CLASS_MEASUREMENT,
+        name="Humidity",
+    ),
+    SensorEntityDescription(
+        key="valveLevel",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=STATE_CLASS_MEASUREMENT,
+        name="Valve Level",
+    ),
 ]
 
 SENSORS_DIAGNOSTIC = [
@@ -142,7 +174,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     link = hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_LINK2]
 
     for featureset_id, featureset in link.featuresets.items():
-        for description in SENSORS_PRIMARY:
+        for description in SENSORS_PRIMARY + SENSORS_CLIMATE:
             if featureset.has_feature(description.key):
                 sensors.append(LWRF2Sensor(featureset.name, featureset_id, link, description, hass))
 
@@ -220,7 +252,10 @@ class LWRF2Sensor(SensorEntity):
             # Very roughly adjust the given % to Lumens using 300 lux = 100%
             lux_level = (value / 100) * RECOMMENDED_LUX_LEVEL
             value = lux_level
-        
+        elif self.entity_description.key == 'temperature' and value is not None:
+            # Same tenths scale as the climate entity. Missing stays unknown.
+            value = value / 10
+
         return value
 
     @property

@@ -7,8 +7,9 @@ try:
     DEVICE_CLASS_WINDOW = BinarySensorDeviceClass.WINDOW
     DEVICE_CLASS_PLUG = BinarySensorDeviceClass.PLUG
     DEVICE_CLASS_MOTION = BinarySensorDeviceClass.MOTION
+    DEVICE_CLASS_HEAT = BinarySensorDeviceClass.HEAT
 except ImportError:
-    from homeassistant.components.binary_sensor import (DEVICE_CLASS_WINDOW, DEVICE_CLASS_PLUG, DEVICE_CLASS_MOTION)
+    from homeassistant.components.binary_sensor import (DEVICE_CLASS_WINDOW, DEVICE_CLASS_PLUG, DEVICE_CLASS_MOTION, DEVICE_CLASS_HEAT)
 from homeassistant.core import callback
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers import entity_registry as er
@@ -40,7 +41,12 @@ SENSORS = [
     BinarySensorEntityDescription(
         key="uiDigitalInput",
         name="DigitalInput",
-    )
+    ),
+    BinarySensorEntityDescription(
+        key="callForHeat",
+        device_class=DEVICE_CLASS_HEAT,
+        name="Call for Heat",
+    ),
 ]
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
