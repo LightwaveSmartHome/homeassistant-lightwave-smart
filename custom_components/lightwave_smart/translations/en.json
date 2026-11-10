@@ -104,7 +104,7 @@
     "issues": {
         "link_disconnected": {
             "title": "Lightwave connection lost",
-            "description": "Home Assistant lost the connection to Lightwave after it had been up. The link reconnects on its own. This repair is removed when the connection is back."
+            "description": "The connection to Lightwave has been down for two minutes. The link keeps trying to reconnect. This repair is removed when the connection is back."
         }
     },
     "application_credentials": {

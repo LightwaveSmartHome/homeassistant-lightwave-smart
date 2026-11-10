@@ -44,6 +44,11 @@ def make_device_info(entity, name = None):
     if via_device_id:
         device_info["via_device_id"] = via_device_id
 
+    # Applied only when Home Assistant first creates the device entry.
+    room_name = getattr(device, "room_name", None)
+    if room_name:
+        device_info["suggested_area"] = room_name
+
     return DeviceInfo(**device_info)
     
 def make_entity_device_info(entity, name = None):
@@ -67,6 +72,11 @@ def make_entity_device_info(entity, name = None):
     via_device_id = _via_device_id(entity, via_identifier, entity._featureset_id)
     if via_device_id:
         device_info["via_device_id"] = via_device_id
+
+    # Applied only when Home Assistant first creates the device entry.
+    room_name = getattr(entity._featureset, "room_name", None) or getattr(entity._device, "room_name", None)
+    if room_name:
+        device_info["suggested_area"] = room_name
 
     return DeviceInfo(**device_info)
 

@@ -76,7 +76,9 @@ For generation 2 lights, the brightness can be set without turning the light on 
 
 Generation 2 devices have a firmware update entity, and that entity can install an update.
 
-Each hub has a Cloud Link sensor. If the connection drops after it has been up, Home Assistant raises a repair and removes it when the link connects again. That sensor stays visible when Hide entities from HomeKit is on.
+Each hub has a Cloud Link sensor. Home Assistant raises a repair when the connection is still down two minutes after it drops, and removes it when the link connects again. That sensor stays visible when Hide entities from HomeKit is on.
+
+A device that Home Assistant is creating for the first time is suggested for the Lightwave room it belongs to. A device that is already set up keeps its area, including when that area is empty.
 
 ## Firmware 5+ 
 
@@ -142,6 +144,8 @@ If you have noticed a bug, please check for an existing open issue and add to th
 PRs are most welcome. If you see something that could be improved, please consider a pull request, including improvements to the readme, examples, or other guidance.
 
 If you would like to help maintain this project (review pull requests, and keep an eye on discussions and issues), send a direct message or email to any current maintainer, or open a discussion.
+
+If this integration is useful, a [star on the repository](https://github.com/LightwaveSmartHome/homeassistant-lightwave-smart) helps others find it.
 
 ## Thanks
 Credit to Bryan Blunt for the original version https://github.com/bigbadblunt/homeassistant-lightwave2

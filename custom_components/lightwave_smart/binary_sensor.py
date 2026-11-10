@@ -177,6 +177,11 @@ class LWRF2LinkBinarySensor(BinarySensorEntity):
         self._lwlink.register_connect_callback(self._async_link_changed)
         self._lwlink.register_disconnect_callback(self._async_link_changed)
 
+    async def async_will_remove_from_hass(self):
+        """Drop the link callbacks. A later add registers this instance once."""
+        self._lwlink.unregister_connect_callback(self._async_link_changed)
+        self._lwlink.unregister_disconnect_callback(self._async_link_changed)
+
     @callback
     def _async_link_changed(self):
         """Update after the websocket connects or drops."""

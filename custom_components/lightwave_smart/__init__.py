@@ -17,6 +17,7 @@ from homeassistant.helpers import (
     config_entry_oauth2_flow,
     aiohttp_client,
 )
+from homeassistant.helpers.event import async_call_later
 from .utils import get_stored_tokens, set_stored_tokens
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
@@ -30,21 +31,49 @@ PLATFORMS = ["switch", "light", "climate", "cover", "binary_sensor", "sensor", "
 def async_central_callback(**kwargs):
     _LOGGER.debug("Central callback")
 
+# Reconnect retries every 30 seconds. Wait longer than a deploy blip before a repair.
+_LINK_REPAIR_DELAY = 120
+_LINK_REPAIR_UNSUB = "link_repair_unsub"
+
 def _link_issue_id(entry_id):
     return f"{entry_id}_link_disconnected"
 
 def _clear_link_issue(hass, entry_id):
     ir.async_delete_issue(hass, DOMAIN, _link_issue_id(entry_id))
 
-def _raise_link_issue(hass, entry_id):
-    """Repair for a drop after the link has been up. Startup does not call this."""
-    ir.async_create_issue(
-        hass,
-        DOMAIN,
-        _link_issue_id(entry_id),
-        is_fixable=False,
-        severity=ir.IssueSeverity.WARNING,
-        translation_key="link_disconnected",
+def _cancel_link_repair_delay(hass, entry_id):
+    entry = hass.data.get(DOMAIN, {}).get(entry_id)
+    if not entry:
+        return
+    unsub = entry.pop(_LINK_REPAIR_UNSUB, None)
+    if unsub is not None:
+        unsub()
+
+def _schedule_link_repair(hass, entry_id):
+    """Raise a repair only if this drop is still down after the reconnect window."""
+    entry = hass.data.get(DOMAIN, {}).get(entry_id)
+    if entry is None or entry.get(_LINK_REPAIR_UNSUB) is not None:
+        return
+
+    def _raise_if_still_down(_now):
+        current = hass.data.get(DOMAIN, {}).get(entry_id)
+        if current is None:
+            return
+        current.pop(_LINK_REPAIR_UNSUB, None)
+        link = current.get(LIGHTWAVE_LINK2)
+        if link is not None and link.connected:
+            return
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            _link_issue_id(entry_id),
+            is_fixable=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="link_disconnected",
+        )
+
+    entry[_LINK_REPAIR_UNSUB] = async_call_later(
+        hass, _LINK_REPAIR_DELAY, _raise_if_still_down
     )
 
 async def async_setup(hass, config):
@@ -125,11 +154,10 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
     entry_id = config_entry.entry_id
 
     def _on_link_disconnect():
-        if entry_id not in hass.data.get(DOMAIN, {}):
-            return
-        _raise_link_issue(hass, entry_id)
+        _schedule_link_repair(hass, entry_id)
 
     def _on_link_connect():
+        _cancel_link_repair_delay(hass, entry_id)
         _clear_link_issue(hass, entry_id)
 
     link.register_disconnect_callback(_on_link_disconnect)
@@ -182,11 +210,12 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
 async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry, source: str = "unload") -> bool:
     """Unload a config entry."""
     _LOGGER.info(f"Unloading config entry: '{config_entry.entry_id}' from {source}")
-    _clear_link_issue(hass, config_entry.entry_id)
     
     # Check if the config entry was actually loaded
     if config_entry.entry_id not in hass.data.get(DOMAIN, {}):
         _LOGGER.warning(f"Config entry '{config_entry.entry_id}' was never loaded, skipping unload")
+        _cancel_link_repair_delay(hass, config_entry.entry_id)
+        _clear_link_issue(hass, config_entry.entry_id)
         return True
     
     # await hass.config_entries.async_unload_platforms(config_entry, PLATFORMS_FIRMWARE)
@@ -211,6 +240,11 @@ async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry, sou
             _LOGGER.debug("Deactivated Lightwave link")
         except Exception as e:
             _LOGGER.error(f"Error deactivating Lightwave link: {e}")
+
+    # A drop while platforms unload can start a repair. Cancel that wait and
+    # delete any repair once the link has been stopped.
+    _cancel_link_repair_delay(hass, config_entry.entry_id)
+    _clear_link_issue(hass, config_entry.entry_id)
     
     # Remove entry data from hass.data if still there
     if config_entry.entry_id in hass.data[DOMAIN]:
@@ -222,7 +256,8 @@ async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry, sou
 async def async_remove_entry(hass, config_entry):
     """Remove a config entry - this is called when the integration is removed."""
     _LOGGER.debug(f"Removing config entry: {config_entry.entry_id}")
-    pass
+    _cancel_link_repair_delay(hass, config_entry.entry_id)
+    _clear_link_issue(hass, config_entry.entry_id)
 
 async def reload_lw(hass, config_entry):
     """Reload the config entry (called when System Options changed)."""
