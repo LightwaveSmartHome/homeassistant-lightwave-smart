@@ -1,19 +1,15 @@
 blueprint:
   name: Lightwave Smart - Long press sets a brightness
-  description: >
+  description: |-
     Set a light to a chosen brightness when a Lightwave button is held.
 
-    On a dimmer or wirefree, holding the down button is Down.Long and
-    holding the up button is Up.Long. On a socket, holding the button is
-    Long. The light can be a different one from the button you pressed.
+    - On a dimmer or wirefree, holding the down button is `Down.Long` and holding the up button is `Up.Long`.
+    - On a socket, holding the button is `Long`.
+    - The light can be a different one from the button you pressed.
 
-    A single press toggles the device. A hold can set this brightness as
-    well.
+    A single press toggles the device. A hold can set this brightness as well.
 
-    If the button is a dimmer button mapped to a gang's output, that gang
-    dims in steps while the button is held. Letting go stops that dimming.
-    This blueprint runs after the hold event arrives and sets the
-    brightness you chose.
+    If the button is a dimmer button mapped to a gang's output, that gang dims in steps while the button is held. Letting go stops that dimming. This blueprint runs after the hold event arrives and sets the brightness you chose.
   domain: automation
   author: LightwaveSmartHome
   source_url: https://github.com/LightwaveSmartHome/homeassistant-lightwave-smart/blob/master/blueprints/automation/lightwave_smart/long_press_brightness.yaml

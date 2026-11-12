@@ -1,18 +1,16 @@
 blueprint:
   name: Lightwave Smart - Seasonal sockets
-  description: >
-    Turn Lightwave sockets on at sunset and off at a clock time, only
-    between two dates. Turn on the morning period to add a second run,
-    from one clock time until another.
+  description: |-
+    Turn Lightwave sockets on at sunset and off at a clock time, only between two dates.
 
-    Only the month and day are used, so the season repeats every year.
-    If the last day falls earlier in the year than the first, the season
-    crosses New Year. The lights still run on the last evening and turn
-    off at the chosen time. The next day they stay off.
+    - Turn on the morning period to add a second run, from one clock time until another.
+    - Only the month and day are used, so the season repeats every year.
+    - If the last day falls earlier in the year than the first, the season crosses New Year.
+    - The lights still run on the last evening and turn off at the chosen time. The next day they stay off.
 
-    Home Assistant uses your location for sunset. This does not call a
-    Lightwave automation. A double press on the same socket can still run
-    a Home Assistant scene with the button-press blueprint.
+    Home Assistant uses your location for sunset. This does not call a Lightwave automation.
+
+    A double press on the same socket can still run a Home Assistant scene with the button-press blueprint.
   domain: automation
   author: LightwaveSmartHome
   source_url: https://github.com/LightwaveSmartHome/homeassistant-lightwave-smart/blob/master/blueprints/automation/lightwave_smart/seasonal_sockets.yaml

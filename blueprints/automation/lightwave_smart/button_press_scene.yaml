@@ -1,15 +1,13 @@
 blueprint:
   name: Lightwave Smart - Button press runs a scene
-  description: >
+  description: |-
     Turn on a scene when a Lightwave button is pressed.
 
-    Choose the Smart Switch event on a socket, or the Smart Switch Pair
-    event on a dimmer or wirefree. A socket double press is Short.2. A
-    dimmer or wirefree puts Up. or Down. in front, so a double press of
-    the down button is Down.Short.2.
+    Choose the Smart Switch event on a socket, or the Smart Switch Pair event on a dimmer or wirefree.
 
-    A single press toggles the device. A double press or a hold can run
-    this scene as well.
+    - A socket double press is `Short.2`.
+    - A dimmer or wirefree puts `Up.` or `Down.` in front, so a double press of the down button is `Down.Short.2`.
+    - A single press toggles the device. A double press or a hold can run this scene as well.
   domain: automation
   author: LightwaveSmartHome
   source_url: https://github.com/LightwaveSmartHome/homeassistant-lightwave-smart/blob/master/blueprints/automation/lightwave_smart/button_press_scene.yaml

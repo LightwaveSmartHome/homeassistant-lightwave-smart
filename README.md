@@ -185,7 +185,7 @@ If this integration is useful, a [star on the repository](https://github.com/Lig
 
 ## Moving from Lightwave2
 
-Entities are created differently from the [original Lightwave2 integration](https://github.com/bigbadblunt/homeassistant-lightwave2). Moving from that integration is a breaking change. [Moving from Lightwave2](docs/migrating-from-lightwave2.md) covers what changes, what to delete, and what you gain.
+Lightwave Smart uses a different domain and unique IDs from the [original Lightwave2 integration](https://github.com/bigbadblunt/homeassistant-lightwave2). Remove Lightwave 2 before adding Lightwave Smart if you want to keep clean entity IDs without `_2` suffixes. [Moving from Lightwave2](docs/migrating-from-lightwave2.md) covers the recommended migration order, what changes, and what you gain.
 
 ## Thanks
 Credit to Bryan Blunt for the original version https://github.com/bigbadblunt/homeassistant-lightwave2

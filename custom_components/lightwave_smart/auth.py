@@ -4,7 +4,6 @@ from collections.abc import Iterable
 from typing import cast
 import asyncio
 
-from homeassistant.components import cloud
 from homeassistant.helpers import config_entry_oauth2_flow
 
 from .auth_const import LW_API_SCOPES
@@ -18,7 +17,7 @@ _LOGGER = logging.getLogger(__name__)
 def get_api_scopes(auth_implementation: str) -> Iterable[str]:
     """Return the Lightwave Smart API scopes based on the auth implementation."""
 
-    if auth_implementation == cloud.DOMAIN:
+    if auth_implementation == "cloud":
         return set(
             {
                 scope
