@@ -2,9 +2,43 @@
 
 Home Assistant integration for controlling [Lightwave](https://lightwaverf.com) devices that use a Lightwave [Link Plus hub](https://lightwaverf.com/collections/all/products/link-plus).
 
-Controls both Connect Series (generation 1) and Smart Series (generation 2) devices. Does not work with Connect Series hubs (Lightwave Link / WiFi Link).
+Controls both Smart Series (generation 2) and Connect Series (generation 1) devices. Does not work with Connect Series hubs (Lightwave Link / WiFi Link).
 
-Entities are created differently from the [original Lightwave2 integration](https://github.com/bigbadblunt/homeassistant-lightwave2). Moving from that integration is a breaking change.
+## Recipes
+
+### Sockets on for a season
+
+Turn Lightwave sockets on at sunset and off at a time you choose, only between two dates. A season from 1 December to 6 January includes those evenings and stops after 6 January. The month and day repeat each year. Turn on "Also on in the morning" to add a second period, from 07:00 to 09:00 unless you change those times.
+
+A wirefree, dimmer or socket can run a Home Assistant scene from a double press with [Double press runs a scene](#double-press-runs-a-scene). The energy sensor on a Smart socket can be added to the Energy dashboard if you want to see what the lights cost.
+
+[![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FLightwaveSmartHome%2Fhomeassistant-lightwave-smart%2Fblob%2Fmaster%2Fblueprints%2Fautomation%2Flightwave_smart%2Fseasonal_sockets.yaml)
+
+[View blueprint](https://github.com/LightwaveSmartHome/homeassistant-lightwave-smart/blob/master/blueprints/automation/lightwave_smart/seasonal_sockets.yaml)
+
+Smart sockets, dimmers, and wirefrees on firmware 5 or newer send each press as a button event. The button blueprints below run something when that event arrives. Import one, pick the Smart Switch or Smart Switch Pair for the gang, and pick the press.
+
+A socket double press is `Short.2`. Holding the socket button is `Long`. A dimmer or wirefree puts `Up.` or `Down.` in front of the same name, so holding the down button is `Down.Long`. A single press toggles the device. A double press or a hold can run one of these as well.
+
+### Double press runs a scene
+
+Turn on a scene from a double press. Change the press if you want a different one.
+
+[![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FLightwaveSmartHome%2Fhomeassistant-lightwave-smart%2Fblob%2Fmaster%2Fblueprints%2Fautomation%2Flightwave_smart%2Fbutton_press_scene.yaml)
+
+[View blueprint](https://github.com/LightwaveSmartHome/homeassistant-lightwave-smart/blob/master/blueprints/automation/lightwave_smart/button_press_scene.yaml)
+
+### Long press sets a brightness
+
+Set a light to a brightness you choose when the button is held.
+
+If the button is a dimmer button mapped to a gang's output, that gang dims in steps while the button is held. Letting go stops that dimming. The blueprint runs after the hold event arrives and sets the brightness you chose.
+
+[![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FLightwaveSmartHome%2Fhomeassistant-lightwave-smart%2Fblob%2Fmaster%2Fblueprints%2Fautomation%2Flightwave_smart%2Flong_press_brightness.yaml)
+
+[View blueprint](https://github.com/LightwaveSmartHome/homeassistant-lightwave-smart/blob/master/blueprints/automation/lightwave_smart/long_press_brightness.yaml)
+
+Event names are listed under [UI Button Events](#ui-button-events).
 
 <!-- ha-marketplace:exclude-start -->
 ## Installation
@@ -98,6 +132,8 @@ A gang of an L42 named "Lounge Xmas", will appear as an entity called "Lounge Xm
 
 <img src="https://lightwave-public-files.s3.eu-west-1.amazonaws.com/home-assistant/LightwaveSmartHomehomeassistant-lightwave-smart-2.png" width="400" alt="UI Button Events">
 
+[Recipes](#recipes) has a blueprint for a double press that runs a scene, and a long press that sets a brightness.
+
 ### Deprecated - lightwave_smart.click events
 
 This is legacy - kept for backward compatibility, will be removed in a future release. Please use UI Button Events instead.
@@ -146,6 +182,10 @@ PRs are most welcome. If you see something that could be improved, please consid
 If you would like to help maintain this project (review pull requests, and keep an eye on discussions and issues), send a direct message or email to any current maintainer, or open a discussion.
 
 If this integration is useful, a [star on the repository](https://github.com/LightwaveSmartHome/homeassistant-lightwave-smart) helps others find it.
+
+## Moving from Lightwave2
+
+Entities are created differently from the [original Lightwave2 integration](https://github.com/bigbadblunt/homeassistant-lightwave2). Moving from that integration is a breaking change. [Moving from Lightwave2](docs/migrating-from-lightwave2.md) covers what changes, what to delete, and what you gain.
 
 ## Thanks
 Credit to Bryan Blunt for the original version https://github.com/bigbadblunt/homeassistant-lightwave2

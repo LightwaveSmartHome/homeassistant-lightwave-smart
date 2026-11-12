@@ -1,0 +1,181 @@
+blueprint:
+  name: Lightwave Smart - Seasonal sockets
+  description: >
+    Turn Lightwave sockets on at sunset and off at a clock time, only
+    between two dates. Turn on the morning period to add a second run,
+    from one clock time until another.
+
+    Only the month and day are used, so the season repeats every year.
+    If the last day falls earlier in the year than the first, the season
+    crosses New Year. The lights still run on the last evening and turn
+    off at the chosen time. The next day they stay off.
+
+    Home Assistant uses your location for sunset. This does not call a
+    Lightwave automation. A double press on the same socket can still run
+    a Home Assistant scene with the button-press blueprint.
+  domain: automation
+  author: LightwaveSmartHome
+  source_url: https://github.com/LightwaveSmartHome/homeassistant-lightwave-smart/blob/master/blueprints/automation/lightwave_smart/seasonal_sockets.yaml
+  input:
+    sockets:
+      name: Sockets
+      description: >
+        Lightwave sockets the lights are plugged into. Pick each gang you
+        want, such as a tree socket and an outdoor socket.
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - integration: lightwave_smart
+              domain: switch
+              device_class: outlet
+    sunset_offset:
+      name: Sunset offset
+      description: >
+        How long before or after sunset to turn the sockets on. At sunset
+        is the default. A custom value is a signed time, such as -00:20:00
+        for 20 minutes before sunset or 00:20:00 for 20 minutes after.
+      default: "00:00:00"
+      selector:
+        select:
+          custom_value: true
+          options:
+            - label: At sunset
+              value: "00:00:00"
+            - label: 15 minutes before sunset
+              value: "-00:15:00"
+            - label: 30 minutes before sunset
+              value: "-00:30:00"
+            - label: 1 hour before sunset
+              value: "-01:00:00"
+            - label: 15 minutes after sunset
+              value: "00:15:00"
+            - label: 30 minutes after sunset
+              value: "00:30:00"
+            - label: 1 hour after sunset
+              value: "01:00:00"
+    off_time:
+      name: Evening off
+      description: >
+        Clock time the sockets turn off after sunset. On the last day they
+        still turn off at this time. A time before noon belongs to the
+        previous evening, so an off after midnight still runs on the last
+        night.
+      default: "23:00:00"
+      selector:
+        time:
+    morning:
+      name: Also on in the morning
+      description: >
+        Turn the sockets on for a morning period as well. Leave this off
+        for evenings only.
+      default: false
+      selector:
+        boolean:
+    morning_on:
+      name: Morning on
+      description: >
+        Clock time the sockets turn on in the morning. Used only when the
+        morning period is on.
+      default: "07:00:00"
+      selector:
+        time:
+    morning_off:
+      name: Morning off
+      description: >
+        Clock time the sockets turn off after the morning. Set this after
+        Morning on and before sunset. A time at or before Morning on does
+        nothing. A time after sunset turns them off again after the evening
+        has started. Used only when the morning period is on.
+      default: "09:00:00"
+      selector:
+        time:
+    season_start:
+      name: First day
+      description: >
+        First day the sockets run. Only the month and day are used, so the
+        year in the date picker does not matter. The default is 1 December.
+      default: "2026-12-01"
+      selector:
+        date:
+    season_end:
+      name: Last day
+      description: >
+        Last day the sockets run, including that evening. Only the month
+        and day are used. If this day falls earlier in the year than the
+        first day, the season crosses New Year. The default is 6 January.
+      default: "2026-01-06"
+      selector:
+        date:
+
+mode: queued
+max: 5
+
+variables:
+  season_start: !input season_start
+  season_end: !input season_end
+  morning: !input morning
+  off_time: !input off_time
+  morning_on: !input morning_on
+  morning_off: !input morning_off
+
+# Compare month and day only. A last day earlier in the year than the
+# first day wraps across New Year. Both ends are included. An evening off
+# before noon belongs to the previous evening.
+triggers:
+  - trigger: sun
+    id: turn_on
+    alias: Sunset
+    event: sunset
+    offset: !input sunset_offset
+  - trigger: time
+    id: turn_off
+    alias: Evening off
+    at: !input off_time
+  - trigger: time
+    id: morning_on
+    alias: Morning on
+    at: !input morning_on
+  - trigger: time
+    id: morning_off
+    alias: Morning off
+    at: !input morning_off
+
+conditions:
+  - condition: template
+    alias: Inside the season
+    value_template: >
+      {% set day = now() - timedelta(days=(1 if trigger.id == 'turn_off' and off_time < '12:00:00' else 0)) %}
+      {% set today = (day.month, day.day) %}
+      {% set start_md = (season_start[5:7] | int, season_start[8:10] | int) %}
+      {% set end_md = (season_end[5:7] | int, season_end[8:10] | int) %}
+      {% if end_md >= start_md %}
+        {{ start_md <= today <= end_md }}
+      {% else %}
+        {{ today >= start_md or today <= end_md }}
+      {% endif %}
+
+actions:
+  - choose:
+      - conditions:
+          - condition: template
+            alias: Sunset, or the morning on time when that period is on
+            value_template: >
+              {{ trigger.id == 'turn_on'
+                 or (trigger.id == 'morning_on' and morning) }}
+        sequence:
+          - alias: Turn the sockets on
+            action: switch.turn_on
+            target:
+              entity_id: !input sockets
+      - conditions:
+          - condition: template
+            alias: Evening off, or the morning off time when that period is on
+            value_template: >
+              {{ trigger.id == 'turn_off'
+                 or (trigger.id == 'morning_off' and morning and morning_off > morning_on) }}
+        sequence:
+          - alias: Turn the sockets off
+            action: switch.turn_off
+            target:
+              entity_id: !input sockets

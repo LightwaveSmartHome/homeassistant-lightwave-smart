@@ -1,0 +1,136 @@
+blueprint:
+  name: Lightwave Smart - Long press sets a brightness
+  description: >
+    Set a light to a chosen brightness when a Lightwave button is held.
+
+    On a dimmer or wirefree, holding the down button is Down.Long and
+    holding the up button is Up.Long. On a socket, holding the button is
+    Long. The light can be a different one from the button you pressed.
+
+    A single press toggles the device. A hold can set this brightness as
+    well.
+
+    If the button is a dimmer button mapped to a gang's output, that gang
+    dims in steps while the button is held. Letting go stops that dimming.
+    This blueprint runs after the hold event arrives and sets the
+    brightness you chose.
+  domain: automation
+  author: LightwaveSmartHome
+  source_url: https://github.com/LightwaveSmartHome/homeassistant-lightwave-smart/blob/master/blueprints/automation/lightwave_smart/long_press_brightness.yaml
+  input:
+    button:
+      name: Button
+      description: >
+        Smart Switch on a socket, or Smart Switch Pair on a dimmer or
+        wirefree.
+      selector:
+        entity:
+          filter:
+            - integration: lightwave_smart
+              domain: event
+              device_class: button
+    press:
+      name: Press
+      description: >
+        Press that sets the brightness. The default is holding the down
+        button on a dimmer or wirefree. A socket hold is Long.
+      default: "Down.Long"
+      selector:
+        select:
+          custom_value: true
+          options:
+            - label: "Socket: single press (Short.1)"
+              value: "Short.1"
+            - label: "Socket: double press (Short.2)"
+              value: "Short.2"
+            - label: "Socket: triple press (Short.3)"
+              value: "Short.3"
+            - label: "Socket: four presses (Short.4)"
+              value: "Short.4"
+            - label: "Socket: five presses (Short.5)"
+              value: "Short.5"
+            - label: "Socket: press and hold (Long)"
+              value: "Long"
+            - label: "Socket: release after hold (Long-Release)"
+              value: "Long-Release"
+            - label: "Up: single press (Up.Short.1)"
+              value: "Up.Short.1"
+            - label: "Up: double press (Up.Short.2)"
+              value: "Up.Short.2"
+            - label: "Up: triple press (Up.Short.3)"
+              value: "Up.Short.3"
+            - label: "Up: four presses (Up.Short.4)"
+              value: "Up.Short.4"
+            - label: "Up: five presses (Up.Short.5)"
+              value: "Up.Short.5"
+            - label: "Up: press and hold (Up.Long)"
+              value: "Up.Long"
+            - label: "Up: release after hold (Up.Long-Release)"
+              value: "Up.Long-Release"
+            - label: "Down: single press (Down.Short.1)"
+              value: "Down.Short.1"
+            - label: "Down: double press (Down.Short.2)"
+              value: "Down.Short.2"
+            - label: "Down: triple press (Down.Short.3)"
+              value: "Down.Short.3"
+            - label: "Down: four presses (Down.Short.4)"
+              value: "Down.Short.4"
+            - label: "Down: five presses (Down.Short.5)"
+              value: "Down.Short.5"
+            - label: "Down: press and hold (Down.Long)"
+              value: "Down.Long"
+            - label: "Down: release after hold (Down.Long-Release)"
+              value: "Down.Long-Release"
+    light:
+      name: Light
+      description: Light, or lights, to set. This can be a different device from the button.
+      selector:
+        target:
+          entity:
+            domain: light
+    brightness:
+      name: Brightness
+      description: Brightness to set, from 1 to 100 percent.
+      default: 30
+      selector:
+        number:
+          min: 1
+          max: 100
+          step: 1
+          unit_of_measurement: "%"
+          mode: slider
+
+mode: single
+max_exceeded: silent
+
+variables:
+  chosen_press: !input press
+
+# The entity state is the time of the press, so the same press can fire
+# again. Require that time to change so a second write of the same press
+# does not run the action twice.
+triggers:
+  - trigger: state
+    alias: Button pressed
+    entity_id: !input button
+    not_from:
+      - unknown
+      - unavailable
+    not_to:
+      - unknown
+      - unavailable
+
+conditions:
+  - condition: template
+    alias: Press matches
+    value_template: >
+      {{ trigger.from_state is not none
+         and trigger.to_state.state != trigger.from_state.state
+         and trigger.to_state.attributes.event_type == chosen_press }}
+
+actions:
+  - alias: Set the brightness
+    action: light.turn_on
+    target: !input light
+    data:
+      brightness_pct: !input brightness

@@ -1,0 +1,117 @@
+blueprint:
+  name: Lightwave Smart - Button press runs a scene
+  description: >
+    Turn on a scene when a Lightwave button is pressed.
+
+    Choose the Smart Switch event on a socket, or the Smart Switch Pair
+    event on a dimmer or wirefree. A socket double press is Short.2. A
+    dimmer or wirefree puts Up. or Down. in front, so a double press of
+    the down button is Down.Short.2.
+
+    A single press toggles the device. A double press or a hold can run
+    this scene as well.
+  domain: automation
+  author: LightwaveSmartHome
+  source_url: https://github.com/LightwaveSmartHome/homeassistant-lightwave-smart/blob/master/blueprints/automation/lightwave_smart/button_press_scene.yaml
+  input:
+    button:
+      name: Button
+      description: >
+        Smart Switch on a socket, or Smart Switch Pair on a dimmer or
+        wirefree.
+      selector:
+        entity:
+          filter:
+            - integration: lightwave_smart
+              domain: event
+              device_class: button
+    press:
+      name: Press
+      description: Press that runs the scene. The default is a socket double press.
+      default: "Short.2"
+      selector:
+        select:
+          custom_value: true
+          options:
+            - label: "Socket: single press (Short.1)"
+              value: "Short.1"
+            - label: "Socket: double press (Short.2)"
+              value: "Short.2"
+            - label: "Socket: triple press (Short.3)"
+              value: "Short.3"
+            - label: "Socket: four presses (Short.4)"
+              value: "Short.4"
+            - label: "Socket: five presses (Short.5)"
+              value: "Short.5"
+            - label: "Socket: press and hold (Long)"
+              value: "Long"
+            - label: "Socket: release after hold (Long-Release)"
+              value: "Long-Release"
+            - label: "Up: single press (Up.Short.1)"
+              value: "Up.Short.1"
+            - label: "Up: double press (Up.Short.2)"
+              value: "Up.Short.2"
+            - label: "Up: triple press (Up.Short.3)"
+              value: "Up.Short.3"
+            - label: "Up: four presses (Up.Short.4)"
+              value: "Up.Short.4"
+            - label: "Up: five presses (Up.Short.5)"
+              value: "Up.Short.5"
+            - label: "Up: press and hold (Up.Long)"
+              value: "Up.Long"
+            - label: "Up: release after hold (Up.Long-Release)"
+              value: "Up.Long-Release"
+            - label: "Down: single press (Down.Short.1)"
+              value: "Down.Short.1"
+            - label: "Down: double press (Down.Short.2)"
+              value: "Down.Short.2"
+            - label: "Down: triple press (Down.Short.3)"
+              value: "Down.Short.3"
+            - label: "Down: four presses (Down.Short.4)"
+              value: "Down.Short.4"
+            - label: "Down: five presses (Down.Short.5)"
+              value: "Down.Short.5"
+            - label: "Down: press and hold (Down.Long)"
+              value: "Down.Long"
+            - label: "Down: release after hold (Down.Long-Release)"
+              value: "Down.Long-Release"
+    scene:
+      name: Scene
+      description: Scene to turn on.
+      selector:
+        entity:
+          domain: scene
+
+mode: single
+max_exceeded: silent
+
+variables:
+  chosen_press: !input press
+
+# The entity state is the time of the press, so the same press can fire
+# again. Require that time to change so a second write of the same press
+# does not run the scene twice.
+triggers:
+  - trigger: state
+    alias: Button pressed
+    entity_id: !input button
+    not_from:
+      - unknown
+      - unavailable
+    not_to:
+      - unknown
+      - unavailable
+
+conditions:
+  - condition: template
+    alias: Press matches
+    value_template: >
+      {{ trigger.from_state is not none
+         and trigger.to_state.state != trigger.from_state.state
+         and trigger.to_state.attributes.event_type == chosen_press }}
+
+actions:
+  - alias: Turn on the scene
+    action: scene.turn_on
+    target:
+      entity_id: !input scene

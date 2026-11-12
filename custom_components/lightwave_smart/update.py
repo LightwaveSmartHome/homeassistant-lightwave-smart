@@ -8,6 +8,7 @@ from homeassistant.components.update import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -75,6 +76,9 @@ class LWRF2Update(UpdateEntity):
     async def async_added_to_hass(self) -> None:
         """Subscribe to events."""
         await self._lwlink.async_register_firmware_event_callback(self._device_id, self.async_update_callback)
+        await self._lwlink.async_register_connection_status_callback(self._device_id, self.async_update_callback)
+        self._lwlink.register_connect_callback(self.async_update_callback)
+        self._lwlink.register_disconnect_callback(self.async_update_callback)
         
         registry = er.async_get(self.hass)
         entity_entry = registry.async_get(self.entity_id)
@@ -86,6 +90,15 @@ class LWRF2Update(UpdateEntity):
         else:
             if entity_entry.hidden_by == er.RegistryEntryHider.INTEGRATION:
                 registry.async_update_entity(self.entity_id, hidden_by=None)
+
+    async def async_will_remove_from_hass(self) -> None:
+        self._lwlink.unregister_connect_callback(self.async_update_callback)
+        self._lwlink.unregister_disconnect_callback(self.async_update_callback)
+        self._lwlink.unregister_connection_status_callback(self._device_id, self.async_update_callback)
+
+    @property
+    def available(self) -> bool:
+        return self._device.firmware_update_allowed()
 
     @callback
     def async_update_callback(self, **kwargs):
@@ -134,7 +147,14 @@ class LWRF2Update(UpdateEntity):
         installing the update.
         """
         _LOGGER.debug(f"async_install - {self.entity_id} - {version} - {backup}")
-        
+
+        await self._device.async_refresh_connection_status()
+        if not self._device.firmware_update_allowed():
+            self.async_write_ha_state()
+            raise HomeAssistantError(
+                f"{self._device.name} is not online, so the firmware update was not started"
+            )
+
         self.in_progress = await self._device.update_firmware(version or self.latest_version)
         self.async_write_ha_state()
         
