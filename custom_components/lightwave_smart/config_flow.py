@@ -13,7 +13,7 @@ from homeassistant.config_entries import (
     SOURCE_RECONFIGURE,
     ConfigEntry,
     ConfigFlowResult,
-    OptionsFlow
+    OptionsFlowWithReload,
 )
 from homeassistant.helpers import storage
 from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
@@ -31,13 +31,19 @@ from .const import (
 )
 from .auth_const import LW_API_SCOPES
 from .utils import set_stored_tokens
-from .auth import get_api_scopes
+from .auth import async_register_cloud_account_link_provider, get_api_scopes
 
 
 
 _LOGGER = logging.getLogger(__name__)
 
 _ZEROCONF_SERVICE_TYPE = "_lightwave._tcp.local."
+_TRANSIENT_FLOW_KEYS = ("original_source", "application_credentials")
+
+
+def _strip_flow_keys(data: Mapping[str, Any]) -> dict[str, Any]:
+    """Return a copy of flow data without internal flow bookkeeping keys."""
+    return {k: v for k, v in data.items() if k not in _TRANSIENT_FLOW_KEYS}
 
 
 def _zeroconf_hub_name(discovery_info: ZeroconfServiceInfo) -> str:
@@ -81,12 +87,11 @@ def _zeroconf_flow_title(discovery_info: ZeroconfServiceInfo) -> str:
 
 AUTH_SCHEMA = vol.Schema(
     {
-        vol.Required(CONF_LW_AUTH_METHOD): selector.SelectSelector(
+        vol.Required(CONF_LW_AUTH_METHOD, default="oauth"): selector.SelectSelector(
             selector.SelectSelectorConfig(
                 options=[
+                    selector.SelectOptionDict(value="oauth", label="OAuth2"),
                     selector.SelectOptionDict(value="refresh", label="Refresh"),
-                    # TODO - OAuth2 removed until linking via Home Assistant Cloud is available
-                    # selector.SelectOptionDict(value="oauth", label="OAuth2"),
                     # TODO - implement API_Key 
                     # selector.SelectOptionDict(value="api_key", label="API_Key"),
                     selector.SelectOptionDict(value="password", label="Password"),
@@ -124,10 +129,7 @@ class InvalidAuth(HomeAssistantError):
     """Error to indicate there is invalid auth."""
 
 
-class lightwave_smartOptionsFlowHandler(config_entries.OptionsFlow):
-
-    def __init__(self, config_entry):
-        pass
+class lightwave_smartOptionsFlowHandler(OptionsFlowWithReload):
 
     async def async_step_init(self, user_input=None):
         return await self.async_step_user()
@@ -219,10 +221,7 @@ class lightwave_smartFlowHandler(
             _LOGGER.debug(f"_pop_oauth_user_input - hass.data does not have DOMAIN - setting default")
             self.hass.data.setdefault(DOMAIN, {})
         
-        oauth_user_input = self.hass.data[DOMAIN].get(CONF_LW_OAUTH_USER_INPUT)
-        if oauth_user_input is not None:
-            self.hass.data[DOMAIN].update({CONF_LW_OAUTH_USER_INPUT: None})
-            
+        oauth_user_input = self.hass.data[DOMAIN].pop(CONF_LW_OAUTH_USER_INPUT, None)
         _LOGGER.debug(f"_pop_oauth_user_input - oauth_user_input: {oauth_user_input}")
         
         return oauth_user_input
@@ -322,6 +321,12 @@ class lightwave_smartFlowHandler(
             pass
         
         elif data_schema is OAUTH_SCHEMA:
+            async_register_cloud_account_link_provider(self.hass)
+            implementations = await config_entry_oauth2_flow.async_get_implementations(
+                self.hass, self.DOMAIN
+            )
+            if implementations:
+                return await self.async_step_oauth_auth_method(user_input=user_input)
             step_id = "oauth_auth_method"
             base_code = None
         
@@ -380,31 +385,38 @@ class lightwave_smartFlowHandler(
         
         result = await self._step_auth(step_id="user", user_input=user_input)
         if result is True:
-            user_input = self._set_user_input(user_input)
+            user_input = _strip_flow_keys(self._set_user_input(user_input))
             
             # if refresh then clear the password
             if user_input[CONF_LW_AUTH_METHOD] == "refresh":
                 user_input[CONF_PASSWORD] = None
             
-            # We dont use async_update_entry because we want to set the title
-            # if existing_entry:
-            #     self.hass.config_entries.async_update_entry(existing_entry, data=user_input)
-            #     return self.async_abort(reason="reconfigure_successful")
+            title = user_input.get(CONF_LW_INSTANCE_NAME) or user_input.get(CONF_USERNAME)
             
-            title = user_input[CONF_LW_INSTANCE_NAME] if CONF_LW_INSTANCE_NAME in user_input else None
-            if title is None:
-                title = user_input[CONF_USERNAME]
-            
-            # if existing entry, replace (must be SOURCE_RECONFIGURE, or SOURCE_REAUTH)
-            unique_id = DOMAIN
             if existing_entry is not None:
-                unique_id = existing_entry.unique_id
+                if not title:
+                    title = existing_entry.title
+                _LOGGER.debug(
+                    "async_step_user - Completed update - entry_id: %s - source: %s - title: %s",
+                    existing_entry.entry_id,
+                    self.source,
+                    title,
+                )
+                return self.async_update_reload_and_abort(
+                    existing_entry,
+                    title=title,
+                    data=user_input,
+                )
                 
-            _LOGGER.debug(f"async_step_user - Completed - user_input: {user_input} - unique_id: {unique_id} - title: {title} - existing_entry: {'Existing Entry Replaced' if existing_entry is not None else 'None'}")
+            _LOGGER.debug(
+                "async_step_user - Completed create - unique_id: %s - title: %s",
+                DOMAIN,
+                title,
+            )
             
             # A discovered hub keeps a flow open with this unique id. Allow this
             # setup to finish, and Home Assistant clears that waiting flow.
-            await self.async_set_unique_id(unique_id, raise_on_progress=False)
+            await self.async_set_unique_id(DOMAIN, raise_on_progress=False)
             return self.async_create_entry(title=title, data=user_input)
 
         return result
@@ -415,23 +427,25 @@ class lightwave_smartFlowHandler(
     
     async def async_step_oauth_auth_method(self, user_input: dict | None = None) -> ConfigFlowResult:
         _LOGGER.debug(f"async_step_oauth_auth_method - user_input: {user_input}")
+        async_register_cloud_account_link_provider(self.hass)
         
         if user_input is not None:
             # oauth_user_input is used to tell us to continue the oauth flow after credentials are added
             # once we have credentials we use it to store the original source for use in async_oauth_create_entry
             
-            application_credentials = None
-            if "application_credentials" in user_input:
-                application_credentials = True
-            else:
-                application_credentials = await self._get_application_credential(optimistic=True)
+            implementations = await config_entry_oauth2_flow.async_get_implementations(
+                self.hass, self.DOMAIN
+            )
+            has_credentials = bool(implementations) or ("application_credentials" in user_input)
+            if not has_credentials:
+                has_credentials = bool(await self._get_application_credential(optimistic=True))
 
-            if application_credentials is None:
+            if not has_credentials:
                 user_input = self._set_user_input(user_input)
+                await self._save_oauth_user_input(user_input=user_input)
             else:
-                user_input = { "original_source": self.source }
+                await self._save_oauth_user_input(user_input={"original_source": self.source})
                 
-            await self._save_oauth_user_input(user_input=user_input)
             return await super().async_step_user()
         
         _LOGGER.warning(f"async_step_oauth_auth_method - user_input is None")
@@ -452,8 +466,8 @@ class lightwave_smartFlowHandler(
         return await self.async_step_user()
 
     async def async_oauth_create_entry(self, data: dict) -> ConfigFlowResult:
-        """Create an oauth config entry or update existing entry for reauth."""
-        _LOGGER.debug(f"async_oauth_create_entry - data: {data}")
+        """Create an oauth config entry or update existing entry for reauth/reconfigure."""
+        _LOGGER.debug("async_oauth_create_entry - keys: %s", sorted(data.keys()))
         
         source = self.source
         
@@ -466,30 +480,37 @@ class lightwave_smartFlowHandler(
             if "original_source" in oauth_user_input:
                 source = oauth_user_input["original_source"]
 
-        data = self._set_user_input(data)
-        
+        data = _strip_flow_keys(self._set_user_input(data))
         data[CONF_LW_AUTH_METHOD] = "oauth"
 
-        # existing_entry = await self.async_set_unique_id(DOMAIN)
         existing_entry, entries = await self._get_existing_entry()
         if existing_entry:
-            self.hass.config_entries.async_update_entry(existing_entry, data=data)
-            # await self.hass.config_entries.async_reload(existing_entry.entry_id)
-            
-            reason = "unknown"
+            title = data.get(CONF_LW_INSTANCE_NAME) or existing_entry.title
             if source == SOURCE_REAUTH:
                 reason = "reauth_successful"
             elif source == SOURCE_RECONFIGURE:
                 reason = "reconfigure_successful"
+            else:
+                _LOGGER.warning(
+                    "async_oauth_create_entry - existing_entry - unexpected source: %s",
+                    source,
+                )
+                reason = "reconfigure_successful"
                 
-            if reason == "unknown":
-                _LOGGER.warning(f"async_oauth_create_entry - existing_entry - unexpected source: {source} - data: {data}")
-                
-            return self.async_abort(reason=reason)
+            return self.async_update_reload_and_abort(
+                existing_entry,
+                title=title,
+                data=data,
+                reason=reason,
+            )
         
         
         await self.async_set_unique_id(DOMAIN, raise_on_progress=False)
-        return await super().async_oauth_create_entry(data)
+        title = (
+            data.get(CONF_LW_INSTANCE_NAME)
+            or ("Lightwave Smart" if self.flow_impl.domain == "cloud" else self.flow_impl.name)
+        )
+        return self.async_create_entry(title=title, data=data)
 
     async def async_step_reconfigure(self, user_input: dict[str, any] | None = None):
         _LOGGER.debug(f"async_step_reconfigure - user_input: {user_input}")
@@ -531,4 +552,4 @@ class lightwave_smartFlowHandler(
     @staticmethod
     @callback
     def async_get_options_flow(config_entry):
-        return lightwave_smartOptionsFlowHandler(config_entry)
+        return lightwave_smartOptionsFlowHandler()

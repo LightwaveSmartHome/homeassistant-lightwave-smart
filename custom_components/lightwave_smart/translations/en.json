@@ -11,7 +11,7 @@
         
             "lightwave_auth_method": {
                 "title": "Lightwave Smart Configuration",
-                "description": "{discovered_hub}Choose your authentication method.\n\n**Note:** Both 'Refresh Token' and 'Password Authentication' require a username and password.\n'Refresh Token' however does not store the password and is preferred over 'Password Authentication'",
+                "description": "{discovered_hub}Choose your authentication method.\n\n**Account Linking** (recommended) signs in directly on Lightwave via your browser without entering your password in Home Assistant.\n**Refresh Token** signs in with your Lightwave email and password once without storing your password.",
                 "data": {
                     "lightwave_auth_method": "Authentication method"
                 }

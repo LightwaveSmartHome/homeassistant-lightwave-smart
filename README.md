@@ -78,10 +78,9 @@ On Home Assistant 2026.11 or newer, installing from the Marketplace opens setup.
 1. Go to Settings > Devices & services
 2. Select Add integration
 3. Search for Lightwave Smart
-4. Choose Refresh Token. Password Authentication is the other method.
-5. Enter your username (email) and password
+4. Choose **Account Linking** (recommended) and sign in on Lightwave in your browser
 
-Refresh Token does not store the password. Password Authentication does. Instance name is optional. If you leave it blank, your username is used.
+Account Linking signs in directly on Lightwave without entering or storing your password in Home Assistant. **Refresh Token** and **Password Authentication** are also available if you sign in inside Home Assistant instead — Refresh Token uses your email and password once without storing the password, while Password Authentication stores it. Instance name is optional on those two methods; if you leave it blank, your username is used.
 
 Entities for all your devices will be created in Home Assistant. Only one Lightwave account can be set up.
 

@@ -31,7 +31,7 @@ Removing Lightwave 2 first frees its entity IDs so Lightwave Smart can claim the
    - Restart Home Assistant.
 4. **Install and set up Lightwave Smart.**
    - Install **Lightwave Smart** from the Marketplace or HACS. Installation steps are in the [readme](../README.md#installation).
-   - Add it under **Settings > Devices & services > Add integration > Lightwave Smart**. Choose **Refresh Token** (your password is not stored; **Password Authentication** is the other method). At first only the hub may show; devices appear within a few seconds. Only one Lightwave account can be set up.
+   - Add it under **Settings > Devices & services > Add integration > Lightwave Smart**. Choose **Account Linking** (recommended, signs in directly on Lightwave in your browser without entering or storing your password in Home Assistant; **Refresh Token** and **Password Authentication** are also available). At first only the hub may show; devices appear within a few seconds. Only one Lightwave account can be set up.
 5. **Update anything that still changed.**
    - Re-apply any custom entity IDs or custom areas from your saved list, and enable `Signal Strength`, `Voltage`, or hub `Last Event Received` on the device page if you used them (those diagnostic sensors now start disabled).
    - Update Device-based automations, `lightwave2.*` service calls, `lightwave2.click` button automations, and any status LED or binary sensor references listed under [What changes](#what-changes). For button presses, use the device's event entity; see [UI Button Events](../README.md#ui-button-events).
@@ -78,7 +78,7 @@ Lights, switches, thermostats, TRVs, covers, sensors (including power and energy
 ## What you gain
 
 - A maintained integration. Lightwave2's own readme sends you here.
-- Refresh Token sign-in, which does not store your password.
+- Account Linking sign-in on Lightwave in your browser (or Refresh Token sign-in), neither of which stores your password in Home Assistant.
 - Button presses as event entities. The automation editor lists `Short.1`, `Down.Long`, and the other types. Numeric codes still arrive on the deprecated `lightwave_smart.click` event, in the table above.
 - A firmware update entity on generation 2 devices. That entity can install an update.
 - A Cloud Link sensor on each hub. Home Assistant raises a repair when the connection is still down two minutes after it drops, and removes the repair when the link connects again.
