@@ -11,7 +11,7 @@
   "issue_tracker": "https://github.com/LightwaveSmartHome/homeassistant-lightwave-smart/issues?q=is%3Aopen+is%3Aissue",
   "loggers": ["custom_components.lightwave_smart", "lightwave_smart"],
   "requirements": ["lightwave_smart==2.0.7"],
-  "version": "5.2.0",
+  "version": "5.2.1-Beta",
   "zeroconf": [
     "_lightwave._tcp.local."
   ]

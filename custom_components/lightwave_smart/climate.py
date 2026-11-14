@@ -43,6 +43,7 @@ from .utils import (
 DEPENDENCIES = ['lightwave_smart']
 _LOGGER = logging.getLogger(__name__)
 PRESET_NAMES = {"Auto": None, "20%": 20, "40%": 40, "60%": 60, "80%": 80, "100%": 100}
+DEFAULT_AUTO_TARGET_TEMP = 20.0
 
 
 CLIMATE = ClimateEntityDescription(
@@ -128,26 +129,14 @@ class LWRF2Climate(ClimateEntity):
         self._target_temperature = self._featureset.features["targetTemperature"].state
         self._target_temperature = self._target_temperature / 10 if self._target_temperature is not None else None
 
-        self._last_tt = self._target_temperature  # Used to store the target temperature to revert to after boosting
+        # Setpoint restored when the user returns a percentage preset to Auto.
+        self._last_tt = None
 
         if self._has_humidity:
             self._humidity = self._featureset.features["humidity"].state
             self._target_humidity = self._featureset.features["targetHumidity"].state
 
-        if self._valve_level == 100 and (self._target_temperature is None or self._target_temperature < 40):
-            self._preset_mode = "Auto"
-        elif self._valve_level == 100:
-            self._preset_mode = "100%"
-        elif self._valve_level == 80:
-            self._preset_mode = "80%"
-        elif self._valve_level == 60:
-            self._preset_mode = "60%"
-        elif self._valve_level == 40:
-            self._preset_mode = "40%"
-        elif self._valve_level == 20:
-            self._preset_mode = "20%"
-        else:
-            self._preset_mode = "Auto"
+        self._apply_preset_mode()
 
     async def async_added_to_hass(self):
         """Subscribe to events."""
@@ -275,10 +264,6 @@ class LWRF2Climate(ClimateEntity):
             
         self._target_temperature = self._featureset.features["targetTemperature"].state
         self._target_temperature = self._target_temperature / 10 if self._target_temperature is not None else None
-        
-        if self._valve_level == 100 and (self._target_temperature is None or self._target_temperature < 40):
-            self._preset_mode = "Auto"
-            self._last_tt = self._target_temperature
 
         if self._has_humidity:
             self._humidity = \
@@ -286,7 +271,23 @@ class LWRF2Climate(ClimateEntity):
             self._target_humidity = \
                 self._featureset.features["targetHumidity"].state
 
-        elif self._valve_level == 100:
+        self._apply_preset_mode()
+
+    def _apply_preset_mode(self):
+        """Set the preset from the target temperature.
+
+        A missing target or a normal setpoint (below 40°C) is Auto. Valve
+        position is telemetry in that mode. A target of 40°C is the
+        manual-position sentinel, and the valve level then selects the
+        percentage preset. Only a known normal setpoint is remembered.
+        """
+        if self._target_temperature is None or self._target_temperature < 40:
+            self._preset_mode = "Auto"
+            if self._target_temperature is not None:
+                self._last_tt = self._target_temperature
+            return
+
+        if self._valve_level == 100:
             self._preset_mode = "100%"
         elif self._valve_level == 80:
             self._preset_mode = "80%"
@@ -307,7 +308,12 @@ class LWRF2Climate(ClimateEntity):
     async def async_set_preset_mode(self, preset_mode):
         """Set preset mode."""
         if preset_mode == "Auto":
-            self._target_temperature = self._last_tt
+            self._target_temperature = (
+                self._last_tt
+                if self._last_tt is not None
+                else DEFAULT_AUTO_TARGET_TEMP
+            )
+            self._last_tt = self._target_temperature
             await self._lwlink.async_set_temperature_by_featureset_id(
                 self._featureset_id, self._target_temperature)
         else:
