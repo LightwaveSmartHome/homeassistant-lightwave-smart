@@ -1,8 +1,11 @@
-# Lightwave Smart
+# Lightwave Smart for Home Assistant
 
-Home Assistant integration for controlling [Lightwave](https://lightwaverf.com) devices that use a Lightwave [Link Plus hub](https://lightwaverf.com/collections/all/products/link-plus).
+Control your [Lightwave](https://lightwaverf.com) smart home in Home Assistant through a [Link Plus](https://lightwaverf.com/collections/all/products/link-plus) hub — including both **Smart Series (Gen 2)** and **Connect Series (Gen 1)** devices paired to that hub.
 
-Controls both Smart Series (generation 2) and Connect Series (generation 1) devices. Does not work with Connect Series hubs (Lightwave Link / WiFi Link).
+[![GitHub Release](https://img.shields.io/github/v/release/LightwaveSmartHome/homeassistant-lightwave-smart?style=flat-square)](https://github.com/LightwaveSmartHome/homeassistant-lightwave-smart/releases)
+[![GitHub Beta](https://img.shields.io/github/v/release/LightwaveSmartHome/homeassistant-lightwave-smart?include_prereleases&filter=*beta*&sort=semver&style=flat-square&label=beta)](https://github.com/LightwaveSmartHome/homeassistant-lightwave-smart/releases)
+
+> **Hub requirement:** Requires a **Lightwave Link Plus (Gen 2)** hub (`L2`). Controls both Smart Series (Gen 2) and Connect Series (Gen 1) devices paired to a Link Plus hub.
 
 ## Recipes
 

@@ -1,3 +1,4 @@
+from datetime import timedelta
 import logging
 from .const import LIGHTWAVE_LINK2, LIGHTWAVE_ENTITIES, CONF_HOMEKIT, DOMAIN
 from homeassistant.components.binary_sensor import BinarySensorEntity, BinarySensorEntityDescription
@@ -15,6 +16,7 @@ except ImportError:
     )
 from homeassistant.core import callback
 from homeassistant.helpers.entity import EntityCategory
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers import entity_registry as er
 from .utils import (
     make_entity_device_info,
@@ -23,6 +25,7 @@ from .utils import (
 
 DEPENDENCIES = ['lightwave_smart']
 _LOGGER = logging.getLogger(__name__)
+_LINK_LAST_EVENT_REFRESH_INTERVAL = timedelta(seconds=60)
 
 SENSORS = [
     BinarySensorEntityDescription(
@@ -171,21 +174,52 @@ class LWRF2LinkBinarySensor(BinarySensorEntity):
 
         self._attr_unique_id = f"{self._featureset_id}_cloudLink"
         self._attr_device_info = make_entity_device_info(self, name)
+        self._unsub_interval = None
+        self._last_written_snapshot = None
+
+    def _last_event_iso(self):
+        getter = getattr(self._lwlink, "get_link_last_event", None)
+        last_event = getter(self._featureset_id) if getter is not None else None
+        return last_event.isoformat() if last_event is not None else None
+
+    def _current_snapshot(self):
+        return (self.is_on, self._last_event_iso())
 
     async def async_added_to_hass(self):
         """Subscribe to link up and down. Do not apply the HomeKit hide."""
         self._lwlink.register_connect_callback(self._async_link_changed)
         self._lwlink.register_disconnect_callback(self._async_link_changed)
+        self._last_written_snapshot = self._current_snapshot()
+        self._unsub_interval = async_track_time_interval(
+            self.hass,
+            self._async_periodic_refresh,
+            _LINK_LAST_EVENT_REFRESH_INTERVAL,
+        )
 
     async def async_will_remove_from_hass(self):
         """Drop the link callbacks. A later add registers this instance once."""
+        if self._unsub_interval is not None:
+            self._unsub_interval()
+            self._unsub_interval = None
         self._lwlink.unregister_connect_callback(self._async_link_changed)
         self._lwlink.unregister_disconnect_callback(self._async_link_changed)
 
     @callback
     def _async_link_changed(self):
         """Update after the websocket connects or drops."""
+        self._last_written_snapshot = self._current_snapshot()
         self.async_schedule_update_ha_state()
+
+    @callback
+    def _async_periodic_refresh(self, _now):
+        """Write state at most once a minute when last_event or link state changed."""
+        if self.hass is None:
+            return
+        snapshot = self._current_snapshot()
+        if snapshot == self._last_written_snapshot:
+            return
+        self._last_written_snapshot = snapshot
+        self.async_write_ha_state()
 
     @property
     def is_on(self):
@@ -195,4 +229,8 @@ class LWRF2LinkBinarySensor(BinarySensorEntity):
     @property
     def extra_state_attributes(self):
         """Return the optional state attributes."""
-        return get_extra_state_attributes(self)
+        attribs = get_extra_state_attributes(self)
+        last_event = self._last_event_iso()
+        if last_event is not None:
+            attribs["last_event"] = last_event
+        return attribs
