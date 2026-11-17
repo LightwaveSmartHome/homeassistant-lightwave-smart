@@ -21,7 +21,7 @@ from homeassistant.config_entries import (
     ConfigEntryNotReady,
 )
 from homeassistant.const import CONF_PASSWORD, CONF_TOKEN, CONF_USERNAME
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import (
     config_entry_oauth2_flow,
     config_validation as cv,
@@ -77,6 +77,7 @@ def _schedule_link_repair(hass, entry_id):
     if not isinstance(entry, dict) or entry.get(_LINK_REPAIR_UNSUB) is not None:
         return
 
+    @callback
     def _raise_if_still_down(_now):
         current_domain = hass.data.get(DOMAIN)
         current = current_domain.get(entry_id) if isinstance(current_domain, dict) else None
