@@ -8,6 +8,7 @@ from homeassistant.const import ATTR_TEMPERATURE
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 
+from custom_components.lightwave_smart.climate import CURRENT_HVAC_OFF
 from custom_components.lightwave_smart.const import CONF_HOMEKIT, CONF_LW_AUTH_METHOD, DOMAIN, LIGHTWAVE_ENTITIES, LIGHTWAVE_LINK2
 from custom_components.lightwave_smart.light import (
     _off_led_name,
@@ -175,6 +176,8 @@ async def test_platforms_create_entities_and_actions(hass, mock_link):
     link.featuresets["s1-trv-fs"].features["heatState"]._state = 0
     await climate.async_update()
     assert climate.hvac_mode == "off"
+    assert climate.hvac_action == CURRENT_HVAC_OFF
+    climate.async_update_callback()
     stat = _by_featureset(entities, "s1-stat-fs", "LWRF2Climate")
     assert stat.hvac_modes == ["heat"]
     assert stat.current_humidity is False
