@@ -55,6 +55,15 @@ SENSORS = [
     ),
 ]
 
+# Features HomeKit Device already reports. uiDigitalInput is not one of them.
+# callForHeat matches the thermostat current heating state, and the climate entity stays visible.
+_HOMEKIT_HIDDEN_FEATURES = frozenset({
+    "windowPosition",
+    "outletInUse",
+    "movement",
+    "callForHeat",
+})
+
 async def async_setup_entry(hass, config_entry, async_add_entities):
     """Find and return Lightwave sensors."""
 
@@ -115,14 +124,14 @@ class LWRF2BinarySensor(BinarySensorEntity):
         await self._lwlink.async_register_feature_callback(self._featureset_id, self.async_update_callback)
         registry = er.async_get(self.hass)
         entity_entry = registry.async_get(self.entity_id)
-        if self._homekit:
+        hide = self._homekit and self.entity_description.key in _HOMEKIT_HIDDEN_FEATURES
+        if hide:
             if entity_entry is not None and not entity_entry.hidden:
                 registry.async_update_entity(
                     self.entity_id, hidden_by=er.RegistryEntryHider.INTEGRATION
                 )
-        else:
-            if entity_entry.hidden_by == er.RegistryEntryHider.INTEGRATION:
-                registry.async_update_entity(self.entity_id, hidden_by=None)
+        elif entity_entry is not None and entity_entry.hidden_by == er.RegistryEntryHider.INTEGRATION:
+            registry.async_update_entity(self.entity_id, hidden_by=None)
                 
     @callback
     def async_update_callback(self, **kwargs):

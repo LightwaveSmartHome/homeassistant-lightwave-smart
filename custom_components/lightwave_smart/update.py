@@ -1,5 +1,5 @@
 import logging
-from .const import LIGHTWAVE_LINK2, LIGHTWAVE_ENTITIES, SERVICE_SETBRIGHTNESS, CONF_HOMEKIT, DOMAIN
+from .const import LIGHTWAVE_LINK2, LIGHTWAVE_ENTITIES, SERVICE_SETBRIGHTNESS, DOMAIN
 from homeassistant.components.update import (
     UpdateDeviceClass,
     UpdateEntity, 
@@ -32,12 +32,11 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, asyn
 
     fws = []
     link = hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_LINK2]
-    homekit = config_entry.options.get(CONF_HOMEKIT, False)
-    
+
     for device_id in link.get_device_ids():
         try:
             if link.devices[device_id].is_gen2():
-                fws.append(LWRF2Update(link.devices[device_id], homekit, FIRMWARE_DESCRIPTION))
+                fws.append(LWRF2Update(link.devices[device_id], FIRMWARE_DESCRIPTION))
         except Exception as e: _LOGGER.exception("Could not add LWRF2Update")
 
     hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_ENTITIES].extend(fws)
@@ -50,7 +49,7 @@ class LWRF2Update(UpdateEntity):
     _attr_should_poll = False
     _attr_assumed_state = False
 
-    def __init__(self, device, homekit, entity_description):
+    def __init__(self, device, entity_description):
         _LOGGER.debug(f"Adding Firmware update for device Id: {device.device_id}  name: {device.name}")
         self._device_id = device.device_id
         self._lwlink = device.link
@@ -58,8 +57,6 @@ class LWRF2Update(UpdateEntity):
         self.entity_description = entity_description
 
         self._device = self._lwlink.devices[self._device_id]
-        
-        self._homekit = homekit
 
         self._attr_unique_id = f"{self._device_id}_{self.entity_description.key}"
         
@@ -80,16 +77,12 @@ class LWRF2Update(UpdateEntity):
         self._lwlink.register_connect_callback(self.async_update_callback)
         self._lwlink.register_disconnect_callback(self.async_update_callback)
         
+        # HomeKit Device only exposes a read-only firmware string. Keep the
+        # installable update entity, and clear a hide left by older companion mode.
         registry = er.async_get(self.hass)
         entity_entry = registry.async_get(self.entity_id)
-        if self._homekit:
-            if entity_entry is not None and not entity_entry.hidden:
-                registry.async_update_entity(
-                    self.entity_id, hidden_by=er.RegistryEntryHider.INTEGRATION
-                )
-        else:
-            if entity_entry.hidden_by == er.RegistryEntryHider.INTEGRATION:
-                registry.async_update_entity(self.entity_id, hidden_by=None)
+        if entity_entry is not None and entity_entry.hidden_by == er.RegistryEntryHider.INTEGRATION:
+            registry.async_update_entity(self.entity_id, hidden_by=None)
 
     async def async_will_remove_from_hass(self) -> None:
         self._lwlink.unregister_connect_callback(self.async_update_callback)

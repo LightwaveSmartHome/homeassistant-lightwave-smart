@@ -1,6 +1,6 @@
 import logging
 import traceback
-from .const import LIGHTWAVE_LINK2, LIGHTWAVE_ENTITIES, SERVICE_SETBRIGHTNESS, CONF_HOMEKIT, DOMAIN
+from .const import LIGHTWAVE_LINK2, LIGHTWAVE_ENTITIES, SERVICE_SETBRIGHTNESS, DOMAIN
 from homeassistant.components.event import (
     EventDeviceClass,
     EventEntity,
@@ -50,16 +50,15 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, asyn
 
     uibuttons = []
     link = hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_LINK2]
-    homekit = config_entry.options.get(CONF_HOMEKIT, False)
-                
+
     for featureset_id, name in link.get_uiButtonPair_producers():
         try:
-            uibuttons.append(LWRF2UIButton(name, featureset_id, link, homekit, SMART_SWITCH_PAIR))
+            uibuttons.append(LWRF2UIButton(name, featureset_id, link, SMART_SWITCH_PAIR))
         except Exception as e: _LOGGER.exception("Could not add LWRF2UIButton - Pair")
 
     for featureset_id, name in link.get_uiButton_producers():
         try:
-            uibuttons.append(LWRF2UIButton(name, featureset_id, link, homekit, SMART_SWITCH))
+            uibuttons.append(LWRF2UIButton(name, featureset_id, link, SMART_SWITCH))
         except Exception as e: _LOGGER.exception("Could not add LWRF2UIButton")
         
 
@@ -72,7 +71,7 @@ class LWRF2UIButton(EventEntity):
 
     _attr_should_poll = False
 
-    def __init__(self, name, featureset_id, link, homekit, entity_description):
+    def __init__(self, name, featureset_id, link, entity_description):
         _LOGGER.debug("Adding uibutton: %s - %s ", name, featureset_id)
         self._featureset_id = featureset_id
         self._lwlink = link
@@ -81,8 +80,6 @@ class LWRF2UIButton(EventEntity):
 
         self._featureset = self._lwlink.featuresets[self._featureset_id]
         self._device = self._featureset.device
-
-        self._homekit = homekit
 
         self._gen2 = self._featureset.is_gen2()
         self._attr_assumed_state = not self._gen2
@@ -96,16 +93,12 @@ class LWRF2UIButton(EventEntity):
         """Subscribe to events."""
         await self._lwlink.async_register_feature_callback(self._featureset_id, self.async_update_callback)
         
+        # HomeKit Device does not replace multi-press events. Clear a hide
+        # left by older companion mode so they stay available.
         registry = er.async_get(self.hass)
         entity_entry = registry.async_get(self.entity_id)
-        if self._homekit and self._gen2:
-            if entity_entry is not None and not entity_entry.hidden:
-                registry.async_update_entity(
-                    self.entity_id, hidden_by=er.RegistryEntryHider.INTEGRATION
-                )
-        else:
-            if entity_entry.hidden_by == er.RegistryEntryHider.INTEGRATION:
-                registry.async_update_entity(self.entity_id, hidden_by=None)
+        if entity_entry is not None and entity_entry.hidden_by == er.RegistryEntryHider.INTEGRATION:
+            registry.async_update_entity(self.entity_id, hidden_by=None)
 
     @callback
     def async_update_callback(self, **kwargs):

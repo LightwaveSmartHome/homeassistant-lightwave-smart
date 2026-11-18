@@ -65,10 +65,12 @@
         "step": {
             "user": {
                 "title": "Lightwave Smart Options",
-                "description": "Configure additional options",
+                "description": "When the Link Plus is also paired with HomeKit, hide the controls HomeKit already shows.",
                 "data": {
-                    "lightwave_homekit": "Hide entities from HomeKit",
-                    "lightwave_auth_method": "Authentication method"
+                    "lightwave_homekit": "Hide entities from HomeKit"
+                },
+                "data_description": {
+                    "lightwave_homekit": "Hides generation 2 lights and switches, and window, motion, socket-in-use, and call-for-heat sensors. Button events, firmware updates, and digital inputs stay visible."
                 }
             }
         }

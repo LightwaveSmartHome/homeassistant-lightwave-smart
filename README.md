@@ -89,7 +89,7 @@ Entities for all your devices will be created in Home Assistant. Only one Lightw
 
 At first only the hub may show, because the other entities are created in the background. Go back to the overview and your devices should appear within a few seconds.
 
-The integration options include Hide entities from HomeKit. When that is on, generation 2 switches, lights, and button events are hidden, and so are binary sensors and firmware updates. Thermostats, covers, locks, sensors, and indicator LEDs stay visible. Hidden entities are hidden in Home Assistant, which keeps them out of HomeKit. Reload is on the three-dot menu of the integration, not in those options.
+The integration options include Hide entities from HomeKit. When that is on, generation 2 switches and lights are hidden, and so are window, motion, socket-in-use, and call-for-heat sensors. Button events, firmware updates, digital inputs, thermostats, covers, locks, power and energy sensors, and indicator LEDs stay visible. Generation 1 switches and lights stay visible. Hidden entities are hidden in Home Assistant, which keeps them out of HomeKit.
 
 ## Updates
 

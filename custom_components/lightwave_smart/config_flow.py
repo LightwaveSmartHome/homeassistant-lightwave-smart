@@ -139,9 +139,6 @@ class lightwave_smartOptionsFlowHandler(OptionsFlowWithReload):
             _LOGGER.debug("Received user input: %s ", user_input)
             return self.async_create_entry(title="", data=user_input)
 
-
-        data = self.config_entry.data
-            
         if self.config_entry.options:
             options = self.config_entry.options
             _LOGGER.debug(f"Creating options form using existing options: {options}")
@@ -155,7 +152,6 @@ class lightwave_smartOptionsFlowHandler(OptionsFlowWithReload):
             step_id="user", 
             data_schema=vol.Schema({
                 vol.Optional(CONF_HOMEKIT, default=options.get(CONF_HOMEKIT)): bool,
-                vol.Remove(CONF_LW_AUTH_METHOD): data.get(CONF_LW_AUTH_METHOD, "unknown")
             })
         )
         

@@ -404,7 +404,31 @@ def test_colour_output_map_rules():
 
 
 async def test_homekit_hides_cloud_features(hass, mock_link):
-    entry = await _setup(hass, options={CONF_HOMEKIT: True})
+    def before(hass, entry):
+        registry = er.async_get(hass)
+        registry.async_get_or_create(
+            "event",
+            DOMAIN,
+            "s1-switch-fs_uiButton",
+            config_entry=entry,
+            hidden_by=er.RegistryEntryHider.INTEGRATION,
+        )
+        registry.async_get_or_create(
+            "update",
+            DOMAIN,
+            "s1-dimmer_firmware",
+            config_entry=entry,
+            hidden_by=er.RegistryEntryHider.INTEGRATION,
+        )
+        registry.async_get_or_create(
+            "binary_sensor",
+            DOMAIN,
+            "s1-window-fs_uiDigitalInput",
+            config_entry=entry,
+            hidden_by=er.RegistryEntryHider.INTEGRATION,
+        )
+
+    entry = await _setup(hass, options={CONF_HOMEKIT: True}, before=before)
     registry = er.async_get(hass)
 
     def hidden(domain, unique_id):
@@ -414,9 +438,15 @@ async def test_homekit_hides_cloud_features(hass, mock_link):
 
     assert hidden("light", "s1-dimmer-a_smartLightSwitch") == er.RegistryEntryHider.INTEGRATION
     assert hidden("switch", "s1-switch-fs_smartSwitch") == er.RegistryEntryHider.INTEGRATION
-    assert hidden("event", "s1-switch-fs_uiButton") == er.RegistryEntryHider.INTEGRATION
+    assert hidden("event", "s1-switch-fs_uiButton") is None
+    assert hidden("event", "s1-dimmer-a_uiButtonPair") is None
     assert hidden("binary_sensor", "s1-window-fs_windowPosition") == er.RegistryEntryHider.INTEGRATION
-    assert hidden("update", "s1-dimmer_firmware") == er.RegistryEntryHider.INTEGRATION
+    assert hidden("binary_sensor", "s1-window-fs_movement") == er.RegistryEntryHider.INTEGRATION
+    assert hidden("binary_sensor", "s1-socket-fs_outletInUse") == er.RegistryEntryHider.INTEGRATION
+    assert hidden("binary_sensor", "s1-stat-fs_callForHeat") == er.RegistryEntryHider.INTEGRATION
+    assert hidden("binary_sensor", "s1-window-fs_uiDigitalInput") is None
+    assert hidden("update", "s1-dimmer_firmware") is None
+    assert hidden("light", "s1-mk4-fs_uiLEDOnColour") is None
     assert hidden("switch", "s1-gen1-fs_smartSwitch") is None
     assert hidden("binary_sensor", "s1-hub_cloudLink") is None
     assert hidden("climate", "s1-trv-fs_thermostat") is None

@@ -20,6 +20,7 @@ from custom_components.lightwave_smart.config_flow import (
 )
 from custom_components.lightwave_smart.const import (
     CONF_API_KEY,
+    CONF_HOMEKIT,
     CONF_LW_AUTH_METHOD,
     CONF_LW_INSTANCE_NAME,
     CONF_REFRESH_TOKEN,
@@ -291,6 +292,8 @@ async def test_options_flow(hass, mock_link, mock_setup_entry):
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
     assert result["type"] is FlowResultType.FORM
+    schema_keys = {getattr(key, "schema", key) for key in result["data_schema"].schema}
+    assert schema_keys == {CONF_HOMEKIT}
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], {"lightwave_homekit": True}
     )
