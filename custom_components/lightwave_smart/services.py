@@ -37,7 +37,8 @@ def async_setup_services(hass: HomeAssistant) -> None:
     async def async_reconnect(call):
         """Reconnect every loaded Lightwave account."""
         _LOGGER.debug("Received service call reconnect")
-        for _entry, runtime in iter_loaded_runtimes(hass):
+        failures = []
+        for entry, runtime in iter_loaded_runtimes(hass):
             link = runtime.link
             try:
                 await link.async_deactivate(source="service_handle_reconnect")
@@ -46,21 +47,29 @@ def async_setup_services(hass: HomeAssistant) -> None:
                     connect_callback=link.async_get_hierarchy,
                 )
             except Exception as err:
-                raise HomeAssistantError(f"Could not reconnect to Lightwave: {err}") from err
+                failures.append(f"{entry.title}: {err}")
+        if failures:
+            raise HomeAssistantError(
+                "Could not reconnect to Lightwave: " + "; ".join(failures)
+            )
 
     async def async_update_states(call):
         """Read states again and refresh loaded entities."""
         _LOGGER.debug("Received service call update states")
-        for _entry, runtime in iter_loaded_runtimes(hass):
+        failures = []
+        for entry, runtime in iter_loaded_runtimes(hass):
             try:
                 await runtime.link.async_update_featureset_states()
             except Exception as err:
-                raise HomeAssistantError(
-                    f"Could not update Lightwave states: {err}"
-                ) from err
+                failures.append(f"{entry.title}: {err}")
+                continue
             for ent in runtime.entities:
                 if ent.hass is not None:
                     ent.async_schedule_update_ha_state(True)
+        if failures:
+            raise HomeAssistantError(
+                "Could not update Lightwave states: " + "; ".join(failures)
+            )
 
     async def async_reset_enabled_status(call):
         """Reset enabled status to defaults."""

@@ -6,6 +6,7 @@ from homeassistant.components.light import (
     ATTR_BRIGHTNESS, ATTR_COLOR_TEMP_KELVIN, ATTR_HS_COLOR, ColorMode
 )
 from homeassistant.core import callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import EntityCategory
 from .entity import LightwaveEntity, async_lightwave_command
@@ -735,15 +736,21 @@ class LWRF2LED(LightwaveEntity, LightEntity):
         """Lightwave switch is on state."""
         return self._state
 
+    def _colour_snapshot(self):
+        return (self._state, self._r, self._g, self._b, self._brightness)
+
+    def _restore_colour(self, snapshot) -> None:
+        self._state, self._r, self._g, self._b, self._brightness = snapshot
+
     async def async_turn_on(self, **kwargs):
         """Turn the Lightwave LED on / set rgb_color / set brightness."""
-        
+        previous = self._colour_snapshot()
         self._state = True
         if 'rgb_color' in kwargs:
             self._r = kwargs['rgb_color'][0]
             self._g = kwargs['rgb_color'][1]
             self._b = kwargs['rgb_color'][2]
-        
+
         if 'brightness' in kwargs:
             self._brightness = kwargs['brightness']
 
@@ -751,26 +758,35 @@ class LWRF2LED(LightwaveEntity, LightEntity):
         g = int(self._g * self._brightness /255)
         b = int(self._b * self._brightness /255)
         rgb = r * 65536 + g * 256 + b
-        
-        await async_lightwave_command(
-            self._lwlink.async_set_led_rgb_by_featureset_id(
-                self._featureset_id, rgb, self.feature_type
-            ),
-            "Could not set the LED colour",
-        )
+
+        try:
+            await async_lightwave_command(
+                self._lwlink.async_set_led_rgb_by_featureset_id(
+                    self._featureset_id, rgb, self.feature_type
+                ),
+                "Could not set the LED colour",
+            )
+        except HomeAssistantError:
+            self._restore_colour(previous)
+            raise
 
         self.async_schedule_update_ha_state()
 
     async def async_turn_off(self, **kwargs):
         """Turn the Lightwave LED off."""
         _LOGGER.debug("HA led.turn_off received, kwargs: %s", kwargs)
+        previous = self._colour_snapshot()
         self._state = False
-        await async_lightwave_command(
-            self._lwlink.async_set_led_rgb_by_featureset_id(
-                self._featureset_id, 0, self.feature_type
-            ),
-            "Could not turn the LED off",
-        )
+        try:
+            await async_lightwave_command(
+                self._lwlink.async_set_led_rgb_by_featureset_id(
+                    self._featureset_id, 0, self.feature_type
+                ),
+                "Could not turn the LED off",
+            )
+        except HomeAssistantError:
+            self._restore_colour(previous)
+            raise
 
         self.async_schedule_update_ha_state()
 

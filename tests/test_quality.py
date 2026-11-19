@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 import pytest
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import entity_registry as er
@@ -224,3 +225,89 @@ async def test_actions_fail_clearly_and_register_once(hass, mock_link):
     await hass.services.async_call(
         DOMAIN, "reset_enabled_status_to_defaults", {}, blocking=True
     )
+
+
+async def test_later_account_still_runs_and_led_colour_rolls_back(hass, mock_link):
+    """A failed first account does not skip the next, and a failed LED write keeps its colour."""
+    first = _entry(hass)
+    second = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_LW_AUTH_METHOD: "password",
+            CONF_USERNAME: "user@example.com",
+            CONF_PASSWORD: "secret",
+        },
+        unique_id="quality-cottage",
+        title="Cottage",
+    )
+    second.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(first.entry_id)
+    await hass.async_block_till_done()
+    assert first.state is ConfigEntryState.LOADED
+    assert second.state is ConfigEntryState.LOADED
+
+    led = next(
+        entity
+        for entity in first.runtime_data.entities
+        if getattr(entity, "feature_type", None) == "rgbColor"
+    )
+    led._state = True
+    led._r, led._g, led._b, led._brightness = 1, 2, 3, 40
+    colour = (led.is_on, led.rgb_color, led.brightness)
+
+    async def fail_led(*_args, **_kwargs):
+        raise RuntimeError("led")
+
+    led._lwlink.async_set_led_rgb_by_featureset_id = fail_led
+    with pytest.raises(HomeAssistantError):
+        await led.async_turn_off()
+    assert (led.is_on, led.rgb_color, led.brightness) == colour
+    with pytest.raises(HomeAssistantError):
+        await led.async_turn_on(rgb_color=(9, 8, 7), brightness=11)
+    assert (led.is_on, led.rgb_color, led.brightness) == colour
+
+    first_link = first.runtime_data.link
+    second_link = second.runtime_data.link
+    called = {"activate": 0, "states": 0, "refreshed": 0}
+
+    async def fail_activate(*_args, **_kwargs):
+        raise RuntimeError("down")
+
+    async def second_activate(*_args, **_kwargs):
+        called["activate"] += 1
+
+    first_link.async_activate = fail_activate
+    second_link.async_activate = second_activate
+    with pytest.raises(
+        HomeAssistantError, match=r"^Could not reconnect to Lightwave: House: down$"
+    ):
+        await hass.services.async_call(DOMAIN, "reconnect", {}, blocking=True)
+    assert called["activate"] == 1
+
+    async def fail_states(*_args, **_kwargs):
+        raise RuntimeError("states")
+
+    async def second_states(*_args, **_kwargs):
+        called["states"] += 1
+
+    first_link.async_update_featureset_states = fail_states
+    second_link.async_update_featureset_states = second_states
+
+    def record_refresh(*_args, **_kwargs):
+        called["refreshed"] += 1
+
+    assert second.runtime_data.entities
+    for entity in second.runtime_data.entities:
+        # Duplicate unique ids keep these entities out of the state machine.
+        # The action refreshes any entity that still has a hass reference.
+        if entity.hass is None:
+            entity.hass = hass
+        entity.async_schedule_update_ha_state = record_refresh
+
+    with pytest.raises(
+        HomeAssistantError,
+        match=r"^Could not update Lightwave states: House: states$",
+    ):
+        await hass.services.async_call(DOMAIN, "update_states", {}, blocking=True)
+    assert called["states"] == 1
+    assert called["refreshed"] == len(second.runtime_data.entities)
