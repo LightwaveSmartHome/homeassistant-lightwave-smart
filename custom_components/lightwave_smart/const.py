@@ -13,6 +13,8 @@ SERVICE_UPDATE = 'update_states'
 SERVICE_RESET_ENABLED_STATUS_TO_DEFAULTS = 'reset_enabled_status_to_defaults'
 
 CONF_LW_INSTANCE_NAME = 'instance_name'
+CONF_LW_CLOUD_IDS = 'lightwave_cloud_ids'
+CONF_LW_USER_ID = 'lightwave_user_id'
 CONF_LW_AUTH_METHOD = 'lightwave_auth_method'
 CONF_LW_AUTH_METHODS = ['password', 'refresh', 'api_key', 'oauth']
 

@@ -2,27 +2,37 @@
 
 from __future__ import annotations
 
+import base64
+import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from homeassistant.config_entries import SOURCE_RECONFIGURE, SOURCE_USER
+from homeassistant.config_entries import SOURCE_REAUTH, SOURCE_RECONFIGURE, SOURCE_USER
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import config_entry_oauth2_flow, storage
 from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
 from custom_components.lightwave_smart.config_flow import (
+    _cloud_ids_from_data,
+    _jwt_payload,
     _strip_flow_keys,
     _zeroconf_cloud_id,
     _zeroconf_flow_title,
     _zeroconf_hub_name,
+    account_unique_id,
 )
 from custom_components.lightwave_smart.const import (
+    CONF_ACCESS_TOKEN,
     CONF_API_KEY,
     CONF_HOMEKIT,
     CONF_LW_AUTH_METHOD,
+    CONF_LW_CLOUD_IDS,
+    CONF_LW_USER_ID,
     CONF_LW_INSTANCE_NAME,
+    CONF_LW_OAUTH_USER_INPUT,
     CONF_REFRESH_TOKEN,
     DOMAIN,
 )
@@ -92,7 +102,7 @@ async def test_password_flow_creates_entry(hass, mock_link, mock_setup_entry):
     result = await _submit_credentials(hass, result["flow_id"])
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == "House"
-    assert result["result"].unique_id == DOMAIN
+    assert result["result"].unique_id == "user@example.com"
     assert result["data"][CONF_LW_AUTH_METHOD] == "password"
     assert result["data"][CONF_USERNAME] == "user@example.com"
     from custom_components.lightwave_smart.utils import get_stored_tokens
@@ -122,7 +132,7 @@ async def test_password_errors_then_recover(hass, mock_link, mock_setup_entry, l
     link_script.activate_error = None
     result = await _submit_credentials(hass, result["flow_id"])
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["result"].unique_id == DOMAIN
+    assert result["result"].unique_id == "user@example.com"
 
 
 async def test_unknown_error_then_recover(hass, mock_link, mock_setup_entry, link_script):
@@ -143,10 +153,24 @@ async def test_unknown_error_then_recover(hass, mock_link, mock_setup_entry, lin
 async def test_refresh_clears_password(hass, mock_link, mock_setup_entry):
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
     result = await _choose_method(hass, result["flow_id"], "refresh")
+    assert result["step_id"] == "refresh"
     result = await _submit_credentials(hass, result["flow_id"], instance="")
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_PASSWORD] is None
     assert result["title"] == "user@example.com"
+    assert result["result"].unique_id == "user@example.com"
+
+
+def test_refresh_step_title_is_not_password_authentication():
+    text = (
+        Path(__file__).resolve().parents[1]
+        / "custom_components/lightwave_smart/translations/en.json"
+    ).read_text(encoding="utf-8")
+    titles = json.loads(text)["config"]["step"]
+    assert titles["refresh"]["title"] == "Lightwave Smart - Refresh Token"
+    assert "Password" not in titles["refresh"]["title"]
+    assert titles["user"]["title"] == "Lightwave Smart - Password Authentication"
+    assert "Password Authentication Configuration" not in titles["reconfigure"]["title"]
 
 
 async def test_invalid_auth_method_and_api_key_branch(hass, mock_link, mock_setup_entry):
@@ -167,15 +191,56 @@ async def test_invalid_auth_method_and_api_key_branch(hass, mock_link, mock_setu
     assert _strip_flow_keys({"original_source": "user", "application_credentials": True, "token": 1}) == {"token": 1}
 
 
-async def test_second_instance_aborts(hass, mock_link, mock_setup_entry):
+async def test_second_account_migrates_legacy_entry(hass, mock_link, mock_setup_entry):
+    legacy = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=DOMAIN,
+        title="Old house",
+        data={
+            CONF_LW_AUTH_METHOD: "password",
+            CONF_USERNAME: "old@example.com",
+            CONF_PASSWORD: "old",
+        },
+    )
+    duplicate = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=None,
+        title="Duplicate legacy",
+        data={
+            CONF_LW_AUTH_METHOD: "password",
+            CONF_USERNAME: "old@example.com",
+            CONF_PASSWORD: "old",
+        },
+    )
+    unnamed = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=DOMAIN,
+        title="No identity",
+        data={CONF_LW_AUTH_METHOD: "oauth", "token": {"access_token": "opaque"}},
+    )
+    legacy.add_to_hass(hass)
+    duplicate.add_to_hass(hass)
+    unnamed.add_to_hass(hass)
+
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    assert legacy.unique_id == "old@example.com"
+    assert duplicate.unique_id is None
+    assert unnamed.unique_id == DOMAIN
+
     result = await _choose_method(hass, result["flow_id"], "password")
-    result = await _submit_credentials(hass, result["flow_id"])
+    result = await _submit_credentials(
+        hass, result["flow_id"], username="New@Example.com", instance="New"
+    )
     assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["result"].unique_id == "new@example.com"
 
     again = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    again = await _choose_method(hass, again["flow_id"], "password")
+    again = await _submit_credentials(
+        hass, again["flow_id"], username="new@example.com", instance="Dup"
+    )
     assert again["type"] is FlowResultType.ABORT
-    assert again["reason"] == "single_instance_allowed"
+    assert again["reason"] == "already_configured"
 
 
 async def test_zeroconf_discovery_and_duplicate(hass, mock_link, mock_setup_entry):
@@ -197,12 +262,37 @@ async def test_zeroconf_discovery_and_duplicate(hass, mock_link, mock_setup_entr
     result = await _choose_method(hass, result["flow_id"], "password")
     created = await _submit_credentials(hass, result["flow_id"])
     assert created["type"] is FlowResultType.CREATE_ENTRY
+    assert created["result"].unique_id == "user@example.com"
+    assert created["result"].data[CONF_LW_CLOUD_IDS] == ["BC310BD2"]
 
     configured = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": "zeroconf"}, data=discovered
     )
     assert configured["type"] is FlowResultType.ABORT
     assert configured["reason"] == "already_configured"
+
+    other = _discovery("Lightwave Link Plus 999999._lightwave._tcp.local.", "BC999999")
+    other_flow = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "zeroconf"}, data=other
+    )
+    assert other_flow["type"] is FlowResultType.FORM
+    other_flow = await _choose_method(hass, other_flow["flow_id"], "password")
+    other_flow = await _submit_credentials(hass, other_flow["flow_id"])
+    assert other_flow["type"] is FlowResultType.ABORT
+    assert other_flow["reason"] == "already_configured"
+    assert created["result"].data[CONF_LW_CLOUD_IDS] == ["BC310BD2", "BC999999"]
+
+    repeated = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "zeroconf"}, data=other
+    )
+    assert repeated["type"] is FlowResultType.ABORT
+    assert repeated["reason"] == "already_configured"
+
+    plain = _discovery("Lightwave Link Plus._lightwave._tcp.local.", None)
+    unnamed = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "zeroconf"}, data=plain
+    )
+    assert unnamed["type"] is FlowResultType.FORM
 
 
 def test_zeroconf_name_helpers():
@@ -257,6 +347,28 @@ async def test_reauth_password(hass, mock_link, mock_setup_entry):
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reauth_successful"
     assert entry.data[CONF_USERNAME] == "new@example.com"
+    assert entry.unique_id == "new@example.com"
+
+    taken = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="taken@example.com",
+        title="Taken",
+        data={
+            CONF_LW_AUTH_METHOD: "password",
+            CONF_USERNAME: "taken@example.com",
+            CONF_PASSWORD: "old",
+        },
+    )
+    taken.add_to_hass(hass)
+    blocked = await entry.start_reauth_flow(hass)
+    blocked = await hass.config_entries.flow.async_configure(blocked["flow_id"], {})
+    blocked = await _choose_method(hass, blocked["flow_id"], "password")
+    blocked = await _submit_credentials(
+        hass, blocked["flow_id"], username="taken@example.com", instance=""
+    )
+    assert blocked["type"] is FlowResultType.ABORT
+    assert blocked["reason"] == "already_configured"
+    assert entry.data[CONF_USERNAME] == "new@example.com"
 
 
 async def test_reconfigure_password(hass, mock_link, mock_setup_entry):
@@ -277,6 +389,7 @@ async def test_reconfigure_password(hass, mock_link, mock_setup_entry):
     assert result["reason"] == "reconfigure_successful"
     assert entry.title == "Renamed"
     assert entry.data[CONF_PASSWORD] is None
+    assert entry.unique_id == "user@example.com"
 
 
 async def test_options_flow(hass, mock_link, mock_setup_entry):
@@ -305,10 +418,24 @@ async def test_options_flow(hass, mock_link, mock_setup_entry):
     assert again["type"] is FlowResultType.FORM
 
 
+def _jwt(payload: dict) -> str:
+    def segment(value: dict) -> str:
+        raw = base64.urlsafe_b64encode(json.dumps(value).encode()).decode().rstrip("=")
+        return raw
+
+    return f"{segment({'alg': 'none'})}.{segment(payload)}.sig"
+
+
 class _MockOAuth(config_entry_oauth2_flow.AbstractOAuth2Implementation):
-    def __init__(self, domain: str = "lightwave_smart", name: str = "Mock Lightwave") -> None:
+    def __init__(
+        self,
+        domain: str = "lightwave_smart",
+        name: str = "Mock Lightwave",
+        user_id: str | None = "oauth-user",
+    ) -> None:
         self._domain = domain
         self._name = name
+        self.user_id = user_id
 
     @property
     def name(self) -> str:
@@ -322,11 +449,14 @@ class _MockOAuth(config_entry_oauth2_flow.AbstractOAuth2Implementation):
         return "https://example.com/auth"
 
     async def async_resolve_external_data(self, external_data) -> dict:
-        return {
+        token = {
             "access_token": "access",
             "refresh_token": "refresh",
             "expires_in": 3600,
         }
+        if self.user_id:
+            token["id_token"] = _jwt({"sub": self.user_id})
+        return token
 
     async def _async_refresh_token(self, token: dict) -> dict:
         return {"access_token": "access", "expires_in": 3600}
@@ -365,6 +495,8 @@ async def test_oauth_create_entry(hass, mock_link, mock_setup_entry):
     result = await _choose_method(hass, result["flow_id"], "oauth")
     result = await _finish_oauth(hass, result["flow_id"])
     assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["title"] == "Mock Lightwave"
+    assert result["result"].unique_id == "oauth-user"
     assert result["data"][CONF_LW_AUTH_METHOD] == "oauth"
     assert "token" in result["data"] or "access_token" in result["data"]
 
@@ -402,12 +534,14 @@ async def test_oauth_reauth_and_unexpected_source(hass, mock_link, mock_setup_en
     assert result["reason"] == "reauth_successful"
 
     fresh = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
-    if fresh["type"] is not FlowResultType.ABORT:
-        flow = _flow(hass, fresh["flow_id"])
-        flow.flow_impl = impl
-        updated = await flow.async_oauth_create_entry({"token": {"access_token": "new"}})
-        assert updated["type"] is FlowResultType.ABORT
-        assert updated["reason"] == "reconfigure_successful"
+    assert fresh["type"] is not FlowResultType.ABORT
+    flow = _flow(hass, fresh["flow_id"])
+    flow.flow_impl = impl
+    updated = await flow.async_oauth_create_entry({"token": {"access_token": "new"}})
+    assert updated["type"] is FlowResultType.CREATE_ENTRY
+    assert updated["title"] == "Lightwave Smart"
+    assert flow.unique_id is None
+    hass.config_entries.flow.async_abort(fresh["flow_id"])
 
 
 async def test_application_credential_helpers(hass, mock_link, mock_setup_entry):
@@ -504,8 +638,6 @@ async def test_reconfigure_without_title_keeps_entry_title(hass, mock_link, mock
 
 
 async def test_oauth_resume_and_unexpected_source(hass, mock_link, mock_setup_entry):
-    from custom_components.lightwave_smart.const import CONF_LW_OAUTH_USER_INPUT
-
     started = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
     hass.config_entries.flow.async_abort(started["flow_id"])
 
@@ -542,3 +674,279 @@ async def test_oauth_resume_and_unexpected_source(hass, mock_link, mock_setup_en
     flow.context["source"] = SOURCE_RECONFIGURE
     created = await flow.async_oauth_create_entry({"token": {"access_token": "tok2"}})
     assert created["reason"] == "reconfigure_successful"
+
+
+def _raw_jwt(payload) -> str:
+    body = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
+    return f"h.{body}.s"
+
+
+def test_account_unique_id_helpers():
+    assert account_unique_id(None) is None
+    assert account_unique_id({CONF_LW_AUTH_METHOD: "password", CONF_USERNAME: " A@B.C "}) == "a@b.c"
+    user_id = "a01716f2-aba6-46b6-ba66-f57d0fc1a54a"
+    assert account_unique_id(
+        {
+            CONF_LW_AUTH_METHOD: "password",
+            CONF_USERNAME: "a@b.c",
+            CONF_ACCESS_TOKEN: _jwt({"sub": user_id}),
+        }
+    ) == user_id
+    assert account_unique_id(
+        {
+            CONF_LW_AUTH_METHOD: "password",
+            CONF_USERNAME: "a@b.c",
+            CONF_ACCESS_TOKEN: _jwt({"structureId": "struct-1"}),
+        }
+    ) == "a@b.c"
+    assert account_unique_id(
+        {
+            CONF_LW_AUTH_METHOD: "refresh",
+            CONF_USERNAME: "a@b.c",
+            CONF_ACCESS_TOKEN: "opaque",
+            CONF_LW_USER_ID: f" {user_id} ",
+        }
+    ) == user_id
+    assert account_unique_id(
+        {
+            CONF_LW_AUTH_METHOD: "password",
+            CONF_USERNAME: "a@b.c",
+            CONF_ACCESS_TOKEN: "",
+            CONF_LW_USER_ID: "  ",
+        }
+    ) == "a@b.c"
+    assert account_unique_id({CONF_LW_AUTH_METHOD: "refresh", CONF_USERNAME: "   "}) is None
+    assert account_unique_id({CONF_LW_AUTH_METHOD: "password", CONF_USERNAME: None}) is None
+    assert account_unique_id({CONF_USERNAME: 5}) is None
+
+    user_token = _jwt({"sub": "user-1", "structureId": "ignored"})
+    structure_token = _jwt({"structureId": "struct-1"})
+    assert account_unique_id(
+        {
+            CONF_LW_AUTH_METHOD: "oauth",
+            "token": {"id_token": user_token, "access_token": structure_token},
+        }
+    ) == "user-1"
+    assert account_unique_id(
+        {CONF_LW_AUTH_METHOD: "oauth", "token": {"access_token": structure_token}}
+    ) is None
+    assert account_unique_id({"token": {"user": {"_id": "a01716f2-aba6-46b6-ba66-f57d0fc1a54a"}}}) == (
+        "a01716f2-aba6-46b6-ba66-f57d0fc1a54a"
+    )
+    assert account_unique_id(
+        {"token": {"structures": ["listed", {"structureId": "struct-1"}]}}
+    ) is None
+    assert account_unique_id(
+        {
+            CONF_LW_AUTH_METHOD: "oauth",
+            "token": {"refresh_token": "r"},
+            "id_token": _jwt({"sub": "  ", "user": {"userId": "top-user"}}),
+        }
+    ) == "top-user"
+    assert account_unique_id(
+        {
+            CONF_LW_AUTH_METHOD: "oauth",
+            "token": {"id_token": "a.!!!.c", "access_token": _jwt({"user_id": "from-access"})},
+        }
+    ) == "from-access"
+    assert _jwt_payload(_raw_jwt(["not", "a", "dict"])) is None
+    assert _jwt_payload("not-a-jwt") is None
+    assert _jwt_payload("a.") is None
+
+    assert _cloud_ids_from_data(None) == []
+    assert _cloud_ids_from_data({}) == []
+    assert _cloud_ids_from_data({CONF_LW_CLOUD_IDS: " ABC "}) == ["ABC"]
+    assert _cloud_ids_from_data({CONF_LW_CLOUD_IDS: "   "}) == []
+    assert _cloud_ids_from_data({CONF_LW_CLOUD_IDS: ["a", "a", " b ", "", 3]}) == ["a", "b"]
+    assert _cloud_ids_from_data({CONF_LW_CLOUD_IDS: 5}) == []
+
+
+async def test_oauth_accounts_are_separate(hass, mock_link, mock_setup_entry):
+    impl = _MockOAuth(user_id="one")
+    config_entry_oauth2_flow.async_register_implementation(hass, DOMAIN, impl)
+
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    result = await _choose_method(hass, result["flow_id"], "oauth")
+    result = await _finish_oauth(hass, result["flow_id"])
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["result"].unique_id == "one"
+
+    again = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    again = await _choose_method(hass, again["flow_id"], "oauth")
+    again = await _finish_oauth(hass, again["flow_id"])
+    assert again["type"] is FlowResultType.ABORT
+    assert again["reason"] == "already_configured"
+
+    impl.user_id = "two"
+    second = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    second = await _choose_method(hass, second["flow_id"], "oauth")
+    second = await _finish_oauth(hass, second["flow_id"])
+    assert second["type"] is FlowResultType.CREATE_ENTRY
+    assert second["result"].unique_id == "two"
+
+    titled = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    flow = _flow(hass, titled["flow_id"])
+    flow.flow_impl = _MockOAuth(name="Named", user_id="named")
+    named = await flow.async_oauth_create_entry(
+        {
+            CONF_LW_INSTANCE_NAME: "Holiday",
+            "token": {"id_token": _jwt({"sub": "named"})},
+        }
+    )
+    assert named["type"] is FlowResultType.CREATE_ENTRY
+    assert named["title"] == "Holiday"
+    assert flow.unique_id == "named"
+    hass.config_entries.flow.async_abort(titled["flow_id"])
+
+
+async def test_oauth_create_restores_reauth_context(hass, mock_link, mock_setup_entry):
+    first = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="first",
+        title="First",
+        data={CONF_LW_AUTH_METHOD: "oauth", "token": {"access_token": "a"}},
+    )
+    second = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="second",
+        title="Second",
+        data={CONF_LW_AUTH_METHOD: "oauth", "token": {"access_token": "b"}},
+    )
+    first.add_to_hass(hass)
+    second.add_to_hass(hass)
+
+    started = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    flow = _flow(hass, started["flow_id"])
+    flow.flow_impl = _MockOAuth(user_id="second")
+    hass.data.setdefault(DOMAIN, {})[CONF_LW_OAUTH_USER_INPUT] = {
+        "original_source": SOURCE_REAUTH,
+        "entry_id": second.entry_id,
+    }
+    created = await flow.async_oauth_create_entry(
+        {"token": {"id_token": _jwt({"sub": "second"})}}
+    )
+    assert created["type"] is FlowResultType.ABORT
+    assert created["reason"] == "reauth_successful"
+    assert second.data["token"]["id_token"]
+    assert first.title == "First"
+
+    started = await first.start_reauth_flow(hass)
+    flow = _flow(hass, started["flow_id"])
+    flow.flow_impl = _MockOAuth(user_id="third")
+    flow.context["source"] = "unexpected"
+    hass.data[DOMAIN][CONF_LW_OAUTH_USER_INPUT] = {
+        "original_source": "nope",
+        "entry_id": second.entry_id,
+    }
+    created = await flow.async_oauth_create_entry(
+        {"token": {"id_token": _jwt({"sub": "third"})}}
+    )
+    assert created["reason"] == "reconfigure_successful"
+    assert first.unique_id == "third"
+    assert second.unique_id == "second"
+
+
+async def test_finish_without_identity_and_repeat_hub(hass, mock_link, mock_setup_entry):
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    flow = _flow(hass, result["flow_id"])
+    created = await flow._async_finish_account_setup({}, None)
+    assert created["type"] is FlowResultType.CREATE_ENTRY
+    assert created["title"] == "Lightwave Smart"
+    assert flow.unique_id is None
+    hass.config_entries.flow.async_abort(result["flow_id"])
+
+    entry = MockConfigEntry(domain=DOMAIN, unique_id="hub@example.com", data={})
+    entry.add_to_hass(hass)
+    flow._discovered_cloud_id = None
+    same = flow._data_with_discovered_hub({"keep": 1}, None)
+    assert same == {"keep": 1}
+    flow._remember_discovered_hub(entry)
+
+    flow._discovered_cloud_id = "HUB1"
+    merged = flow._data_with_discovered_hub({"keep": 1}, {CONF_LW_CLOUD_IDS: ["HUB1"]})
+    assert merged[CONF_LW_CLOUD_IDS] == ["HUB1"]
+    flow._remember_discovered_hub(entry)
+    assert list(entry.data[CONF_LW_CLOUD_IDS]) == ["HUB1"]
+    flow._remember_discovered_hub(entry)
+    assert list(entry.data[CONF_LW_CLOUD_IDS]) == ["HUB1"]
+
+
+_LIGHTWAVE_USER = "a01716f2-aba6-46b6-ba66-f57d0fc1a54a"
+
+
+async def _connection_with_sub(self, username, password):
+    return {CONF_ACCESS_TOKEN: _jwt({"sub": _LIGHTWAVE_USER}), "refresh_token": "r"}
+
+
+async def test_password_unique_id_is_access_token_sub(hass, mock_link, mock_setup_entry):
+    with patch(
+        "custom_components.lightwave_smart.config_flow.lightwave_smartFlowHandler._test_connection",
+        _connection_with_sub,
+    ):
+        result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+        result = await _choose_method(hass, result["flow_id"], "refresh")
+        result = await _submit_credentials(hass, result["flow_id"], username="User@Example.com")
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["result"].unique_id == _LIGHTWAVE_USER
+    assert result["data"][CONF_LW_USER_ID] == _LIGHTWAVE_USER
+    assert result["data"][CONF_PASSWORD] is None
+
+
+async def test_legacy_entry_keeps_saved_user_id(hass, mock_link, mock_setup_entry):
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=DOMAIN,
+        data={
+            CONF_LW_AUTH_METHOD: "password",
+            CONF_USERNAME: "saved@example.com",
+            CONF_LW_USER_ID: _LIGHTWAVE_USER,
+        },
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    assert entry.unique_id == _LIGHTWAVE_USER
+
+
+async def test_legacy_entry_uses_stored_access_token_sub(hass, mock_link, mock_setup_entry):
+    from custom_components.lightwave_smart.utils import set_stored_tokens
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=DOMAIN,
+        title="Old house",
+        data={
+            CONF_LW_AUTH_METHOD: "password",
+            CONF_USERNAME: "old@example.com",
+            CONF_PASSWORD: "old",
+        },
+    )
+    entry.add_to_hass(hass)
+    await set_stored_tokens(
+        hass, "old@example.com", {CONF_ACCESS_TOKEN: _jwt({"sub": _LIGHTWAVE_USER})}
+    )
+    await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    assert entry.unique_id == _LIGHTWAVE_USER
+
+
+async def test_email_unique_id_upgrades_to_user_id(hass, mock_link, mock_setup_entry):
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="user@example.com",
+        title="House",
+        data={
+            CONF_LW_AUTH_METHOD: "password",
+            CONF_USERNAME: "user@example.com",
+            CONF_PASSWORD: "old",
+        },
+    )
+    entry.add_to_hass(hass)
+    with patch(
+        "custom_components.lightwave_smart.config_flow.lightwave_smartFlowHandler._test_connection",
+        _connection_with_sub,
+    ):
+        result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+        result = await _choose_method(hass, result["flow_id"], "password")
+        result = await _submit_credentials(hass, result["flow_id"])
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
+    assert entry.unique_id == _LIGHTWAVE_USER

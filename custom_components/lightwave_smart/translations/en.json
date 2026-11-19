@@ -17,8 +17,22 @@
                 }
             },
             "user": {
-                "title": "Lightwave Smart - Password Authentication Configuration",
-                "description": "{discovered_hub}Enter your Lightwave credentials",
+                "title": "Lightwave Smart - Password Authentication",
+                "description": "{discovered_hub}Enter your Lightwave email and password. Password Authentication stores the password in Home Assistant.",
+                "data": {
+                    "username": "Username (Email)",
+                    "password": "Password",
+                    "instance_name": "Instance Name"
+                },
+                "data_description": {
+                    "username": "Username (Email)",
+                    "password": "Password",
+                    "instance_name": "Optional, your username will be used if not provided"
+                }
+            },
+            "refresh": {
+                "title": "Lightwave Smart - Refresh Token",
+                "description": "{discovered_hub}Enter your Lightwave email and password. They are used once to create a refresh token and are not stored.",
                 "data": {
                     "username": "Username (Email)",
                     "password": "Password",
@@ -31,7 +45,7 @@
                 }
             },
             "reconfigure": {
-                "title": "Reconfigure Lightwave Smart - Password Authentication Configuration",
+                "title": "Reconfigure Lightwave Smart",
                 "description": "Enter your updated Lightwave credentials",
                 "data": {
                     "username": "Username (Email)",

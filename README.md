@@ -85,7 +85,7 @@ On Home Assistant 2026.11 or newer, installing from the Marketplace opens setup.
 
 Account Linking signs in directly on Lightwave without entering or storing your password in Home Assistant. **Refresh Token** and **Password Authentication** are also available if you sign in inside Home Assistant instead — Refresh Token uses your email and password once without storing the password, while Password Authentication stores it. Instance name is optional on those two methods; if you leave it blank, your username is used.
 
-Entities for all your devices will be created in Home Assistant. Only one Lightwave account can be set up.
+Entities for all your devices on that Lightwave account will be created in Home Assistant. Add the integration again to set up another Lightwave account.
 
 At first only the hub may show, because the other entities are created in the background. Go back to the overview and your devices should appear within a few seconds.
 
