@@ -52,6 +52,10 @@
                     "password": "Password"
                 }
             },
+            "reauth_confirm": {
+                "title": "Lightwave Smart - Reauthenticate",
+                "description": "Lightwave needs you to sign in again. Continue to choose Account Linking, Refresh Token, or Password Authentication."
+            },
             "oauth_auth_method": {
                 "title": "Lightwave Smart - Account Linking Configuration",
                 "description": "{discovered_hub}You will be redirected to Lightwave to authorize the integration. Once authorized, you will be redirected back to Home Assistant to complete the setup.",
@@ -71,8 +75,7 @@
             "already_configured": "This account is already configured.",
             "reauth_successful": "Re-authentication was successful.",
             "reconfigure_successful": "Reconfigure was successful.",
-            "unique_id_mismatch": "A different username was given, the original username is required. Please enter the original username or delete the integration and try again.",
-            "single_instance_allowed": "Only one instance of the Lightwave Smart integration is allowed.\nPlease raise an issue if more than one is required."
+            "unique_id_mismatch": "A different username was given, the original username is required. Please enter the original username or delete the integration and try again."
         }
     },
     "options": {

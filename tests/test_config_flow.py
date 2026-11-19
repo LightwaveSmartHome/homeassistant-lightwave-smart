@@ -171,6 +171,9 @@ def test_refresh_step_title_is_not_password_authentication():
     assert "Password" not in titles["refresh"]["title"]
     assert titles["user"]["title"] == "Lightwave Smart - Password Authentication"
     assert "Password Authentication Configuration" not in titles["reconfigure"]["title"]
+    assert titles["reauth_confirm"]["title"] == "Lightwave Smart - Reauthenticate"
+    assert titles["reauth_confirm"]["description"]
+    assert "single_instance_allowed" not in json.loads(text)["config"]["abort"]
 
 
 async def test_invalid_auth_method_and_api_key_branch(hass, mock_link, mock_setup_entry):
