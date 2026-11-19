@@ -90,7 +90,7 @@ class LWRF2Switch(SwitchEntity):
                     self.entity_id, hidden_by=er.RegistryEntryHider.INTEGRATION
                 )
         else:
-            if entity_entry.hidden_by == er.RegistryEntryHider.INTEGRATION:
+            if entity_entry is not None and entity_entry.hidden_by == er.RegistryEntryHider.INTEGRATION:
                 registry.async_update_entity(self.entity_id, hidden_by=None)
 
     @callback
