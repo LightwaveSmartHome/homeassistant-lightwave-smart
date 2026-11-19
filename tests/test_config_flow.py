@@ -16,7 +16,9 @@ from homeassistant.helpers import config_entry_oauth2_flow, storage
 from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
 from custom_components.lightwave_smart.config_flow import (
+    _account_label,
     _cloud_ids_from_data,
+    _is_account_switch,
     _jwt_payload,
     _strip_flow_keys,
     _zeroconf_cloud_id,
@@ -84,6 +86,10 @@ async def _submit_credentials(hass, flow_id, username="user@example.com", passwo
             CONF_LW_INSTANCE_NAME: instance,
         },
     )
+
+
+async def _confirm_account_change(hass, flow_id):
+    return await hass.config_entries.flow.async_configure(flow_id, {})
 
 
 def _flow(hass, flow_id):
@@ -173,6 +179,9 @@ def test_refresh_step_title_is_not_password_authentication():
     assert "Password Authentication Configuration" not in titles["reconfigure"]["title"]
     assert titles["reauth_confirm"]["title"] == "Lightwave Smart - Reauthenticate"
     assert titles["reauth_confirm"]["description"]
+    assert titles["confirm_account_change"]["title"] == "Different Lightwave account"
+    assert "{current_account}" in titles["confirm_account_change"]["description"]
+    assert "{new_account}" in titles["confirm_account_change"]["description"]
     assert "single_instance_allowed" not in json.loads(text)["config"]["abort"]
 
 
@@ -347,10 +356,24 @@ async def test_reauth_password(hass, mock_link, mock_setup_entry):
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     result = await _choose_method(hass, result["flow_id"], "password")
     result = await _submit_credentials(hass, result["flow_id"], username="new@example.com", instance="")
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "confirm_account_change"
+    assert result["description_placeholders"]["current_account"] == "old@example.com"
+    assert result["description_placeholders"]["new_account"] == "new@example.com"
+    result = await _confirm_account_change(hass, result["flow_id"])
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reauth_successful"
     assert entry.data[CONF_USERNAME] == "new@example.com"
     assert entry.unique_id == "new@example.com"
+
+    same = await entry.start_reauth_flow(hass)
+    same = await hass.config_entries.flow.async_configure(same["flow_id"], {})
+    same = await _choose_method(hass, same["flow_id"], "password")
+    same = await _submit_credentials(
+        hass, same["flow_id"], username="new@example.com", instance=""
+    )
+    assert same["type"] is FlowResultType.ABORT
+    assert same["reason"] == "reauth_successful"
 
     taken = MockConfigEntry(
         domain=DOMAIN,
@@ -388,6 +411,9 @@ async def test_reconfigure_password(hass, mock_link, mock_setup_entry):
     )
     result = await _choose_method(hass, result["flow_id"], "refresh")
     result = await _submit_credentials(hass, result["flow_id"], instance="Renamed")
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "confirm_account_change"
+    result = await _confirm_account_change(hass, result["flow_id"])
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reconfigure_successful"
     assert entry.title == "Renamed"
@@ -684,6 +710,48 @@ def _raw_jwt(payload) -> str:
     return f"h.{body}.s"
 
 
+def test_account_switch_helpers():
+    target = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="old@example.com",
+        title="House",
+        data={CONF_LW_AUTH_METHOD: "password", CONF_USERNAME: "old@example.com"},
+    )
+    assert _is_account_switch(None, "new", {}, target) is False
+    assert _is_account_switch("old", None, {}, target) is False
+    assert _is_account_switch("same", "same", {}, target) is False
+    assert _is_account_switch(
+        "old@example.com",
+        "user-id",
+        {CONF_USERNAME: "old@example.com"},
+        target,
+    ) is False
+    no_username = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="a@b.c",
+        title="House",
+        data={CONF_LW_AUTH_METHOD: "oauth", "token": {"access_token": "x"}},
+    )
+    assert _is_account_switch(
+        "a@b.c",
+        "user-id",
+        {CONF_USERNAME: "a@b.c"},
+        no_username,
+    ) is False
+    assert _is_account_switch(
+        "old@example.com",
+        "new@example.com",
+        {CONF_USERNAME: "new@example.com"},
+        target,
+    ) is True
+    assert _is_account_switch("first", "third", {"token": {}}, target) is True
+    assert _account_label(None, None, None) == "unknown"
+    assert _account_label("id", {CONF_USERNAME: " A@B.C "}, "Title") == "a@b.c"
+    assert _account_label("id", {CONF_LW_INSTANCE_NAME: " Holiday "}, "Title") == "Holiday"
+    assert _account_label("id", {}, " Title ") == "Title"
+    assert _account_label("id", {}, None) == "id"
+
+
 def test_account_unique_id_helpers():
     assert account_unique_id(None) is None
     assert account_unique_id({CONF_LW_AUTH_METHOD: "password", CONF_USERNAME: " A@B.C "}) == "a@b.c"
@@ -844,9 +912,66 @@ async def test_oauth_create_restores_reauth_context(hass, mock_link, mock_setup_
     created = await flow.async_oauth_create_entry(
         {"token": {"id_token": _jwt({"sub": "third"})}}
     )
+    assert created["type"] is FlowResultType.FORM
+    assert created["step_id"] == "confirm_account_change"
+    assert created["description_placeholders"]["current_account"] == "First"
+    assert created["description_placeholders"]["new_account"] == "third"
+    # oauth_create_entry was called on the flow object, so confirm the same way.
+    created = await flow.async_step_confirm_account_change({})
     assert created["reason"] == "reconfigure_successful"
     assert first.unique_id == "third"
     assert second.unique_id == "second"
+
+
+async def test_confirm_account_change_without_pending_aborts(hass, mock_link, mock_setup_entry):
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="kept",
+        title="Kept",
+        data={CONF_LW_AUTH_METHOD: "oauth", "token": {"access_token": "a"}},
+    )
+    entry.add_to_hass(hass)
+    started = await entry.start_reauth_flow(hass)
+    flow = _flow(hass, started["flow_id"])
+    flow._pending_account_setup = None
+    aborted = await flow.async_step_confirm_account_change({})
+    assert aborted["type"] is FlowResultType.ABORT
+    assert aborted["reason"] == "unknown"
+    assert entry.unique_id == "kept"
+
+    shown = await flow.async_step_confirm_account_change()
+    assert shown["type"] is FlowResultType.FORM
+    assert shown["step_id"] == "confirm_account_change"
+    assert shown["description_placeholders"]["new_account"] == "unknown"
+
+    flow._pending_account_setup = {"data": "bad", "title": None}
+    shown = await flow.async_step_confirm_account_change()
+    assert shown["description_placeholders"]["new_account"] == "unknown"
+
+    taken = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="third",
+        title="Taken",
+        data={CONF_LW_AUTH_METHOD: "oauth", "token": {"access_token": "b"}},
+    )
+    taken.add_to_hass(hass)
+    flow._pending_account_setup = {
+        "data": {"token": {"id_token": _jwt({"sub": "third"})}},
+        "title": None,
+    }
+    blocked = await flow.async_step_confirm_account_change({})
+    assert blocked["type"] is FlowResultType.ABORT
+    assert blocked["reason"] == "already_configured"
+    assert entry.unique_id == "kept"
+
+    flow._pending_account_setup = {
+        "data": {"token": {"id_token": _jwt({"sub": "fresh"})}},
+        "title": None,
+    }
+    applied = await flow.async_step_confirm_account_change({})
+    assert applied["reason"] == "reauth_successful"
+    assert entry.unique_id == "fresh"
+    assert entry.title == "Kept"
 
 
 async def test_finish_without_identity_and_repeat_hub(hass, mock_link, mock_setup_entry):

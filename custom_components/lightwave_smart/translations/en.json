@@ -56,6 +56,10 @@
                 "title": "Lightwave Smart - Reauthenticate",
                 "description": "Lightwave needs you to sign in again. Continue to choose Account Linking, Refresh Token, or Password Authentication."
             },
+            "confirm_account_change": {
+                "title": "Different Lightwave account",
+                "description": "This integration is set up for {current_account}. You signed in as {new_account}. Continue to replace this setup with the new account, or cancel to keep the current one."
+            },
             "oauth_auth_method": {
                 "title": "Lightwave Smart - Account Linking Configuration",
                 "description": "{discovered_hub}You will be redirected to Lightwave to authorize the integration. Once authorized, you will be redirected back to Home Assistant to complete the setup.",

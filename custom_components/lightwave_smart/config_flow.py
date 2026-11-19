@@ -216,6 +216,42 @@ def _cloud_ids_from_data(data: Mapping[str, Any] | None) -> list[str]:
     return ids
 
 
+def _account_label(account_id: str | None, data: Mapping[str, Any] | None, title: str | None = None) -> str:
+    """Return a short label for confirm copy: email, instance name, title, then account id."""
+    if isinstance(data, Mapping):
+        email = _credential_unique_id(data.get(CONF_USERNAME))
+        if email:
+            return email
+        instance = data.get(CONF_LW_INSTANCE_NAME)
+        if isinstance(instance, str) and instance.strip():
+            return instance.strip()
+    if isinstance(title, str) and title.strip():
+        return title.strip()
+    if account_id:
+        return account_id
+    return "unknown"
+
+
+def _is_account_switch(
+    current_id: str | None,
+    new_id: str | None,
+    data: Mapping[str, Any],
+    target: ConfigEntry,
+) -> bool:
+    """Return True when reauth/reconfigure signed in as a different Lightwave login.
+
+    Missing either id is treated as an upgrade (legacy or opaque token), not a switch.
+    The same email refining from an email unique id to a user id is also not a switch.
+    """
+    if not current_id or not new_id or current_id == new_id:
+        return False
+    new_email = _credential_unique_id(data.get(CONF_USERNAME))
+    target_email = _credential_unique_id(target.data.get(CONF_USERNAME))
+    if new_email and (new_email == target_email or current_id == new_email):
+        return False
+    return True
+
+
 AUTH_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_LW_AUTH_METHOD, default="oauth"): selector.SelectSelector(
@@ -299,6 +335,7 @@ class lightwave_smartFlowHandler(
     
     _user_input = None
     _discovered_cloud_id: str | None = None
+    _pending_account_setup: dict[str, Any] | None = None
     
     @property
     def logger(self):
@@ -484,7 +521,11 @@ class lightwave_smartFlowHandler(
             user_id = _user_id_from_access_token(stored.get(CONF_ACCESS_TOKEN))
             if user_id:
                 return user_id
-        return account_id
+        if account_id:
+            return account_id
+        if entry.unique_id not in _LEGACY_UNIQUE_IDS:
+            return entry.unique_id
+        return None
 
     def _entry_for_account(self, account_id: str, data: Mapping[str, Any]) -> ConfigEntry | None:
         """Return the entry for this user id, including one previously keyed by email."""
@@ -566,6 +607,27 @@ class lightwave_smartFlowHandler(
         if entry_id and "entry_id" not in self.context:
             self.context["entry_id"] = entry_id
 
+    async def _async_apply_account_update(
+        self,
+        target: ConfigEntry,
+        data: dict[str, Any],
+        title: str | None,
+        account_id: str | None,
+    ) -> ConfigFlowResult:
+        """Update the target entry after reauth/reconfigure (and any confirm)."""
+        if not title:
+            title = target.title
+        data = self._data_with_discovered_hub(data, target.data)
+        reason = (
+            "reauth_successful"
+            if self.source == SOURCE_REAUTH
+            else "reconfigure_successful"
+        )
+        update: dict[str, Any] = {"title": title, "data": data, "reason": reason}
+        if account_id:
+            update["unique_id"] = account_id
+        return self.async_update_reload_and_abort(target, **update)
+
     async def _async_finish_account_setup(
         self, data: dict[str, Any], title: str | None
     ) -> ConfigFlowResult:
@@ -586,16 +648,13 @@ class lightwave_smartFlowHandler(
             owner = self._entry_for_account(account_id, data) if account_id else None
             if owner is not None and owner.entry_id != target.entry_id:
                 return self.async_abort(reason="already_configured")
-            data = self._data_with_discovered_hub(data, target.data)
-            reason = (
-                "reauth_successful"
-                if self.source == SOURCE_REAUTH
-                else "reconfigure_successful"
+            current_id = await self._account_id_for_entry(target)
+            if _is_account_switch(current_id, account_id, data, target):
+                self._pending_account_setup = {"data": data, "title": title}
+                return await self.async_step_confirm_account_change()
+            return await self._async_apply_account_update(
+                target, data, title, account_id
             )
-            update = {"title": title, "data": data, "reason": reason}
-            if account_id:
-                update["unique_id"] = account_id
-            return self.async_update_reload_and_abort(target, **update)
 
         if account_id:
             existing = self._entry_for_account(account_id, data)
@@ -610,6 +669,41 @@ class lightwave_smartFlowHandler(
             title = "Lightwave Smart"
         data = self._data_with_discovered_hub(data, None)
         return self.async_create_entry(title=title, data=data)
+
+    async def async_step_confirm_account_change(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Ask before replacing this entry with a different Lightwave login."""
+        pending = self._pending_account_setup
+        target = self._target_entry()
+        if user_input is None:
+            data = pending.get("data") if pending else None
+            if not isinstance(data, Mapping):
+                data = {}
+            current_id = await self._account_id_for_entry(target) if target else None
+            new_id = account_unique_id(data)
+            return self.async_show_form(
+                step_id="confirm_account_change",
+                description_placeholders={
+                    "current_account": _account_label(
+                        current_id,
+                        target.data if target else None,
+                        target.title if target else None,
+                    ),
+                    "new_account": _account_label(new_id, data),
+                },
+            )
+
+        self._pending_account_setup = None
+        if not pending or target is None:
+            return self.async_abort(reason="unknown")
+        data = pending["data"]
+        title = pending.get("title")
+        account_id = account_unique_id(data)
+        owner = self._entry_for_account(account_id, data) if account_id else None
+        if owner is not None and owner.entry_id != target.entry_id:
+            return self.async_abort(reason="already_configured")
+        return await self._async_apply_account_update(target, data, title, account_id)
 
     async def async_step_zeroconf(self, discovery_info: ZeroconfServiceInfo) -> ConfigFlowResult:
         """Handle zeroconf discovery."""
