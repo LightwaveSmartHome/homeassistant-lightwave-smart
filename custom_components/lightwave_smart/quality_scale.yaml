@@ -1,0 +1,145 @@
+rules:
+  # Bronze
+  action-setup: done
+  appropriate-polling:
+    status: exempt
+    comment: >-
+      The integration is cloud_push. Entities do not poll. The Cloud Link
+      sensor refreshes its last-event attribute once a minute and does not
+      poll the Lightwave cloud.
+  brands:
+    status: todo
+    comment: >-
+      Icon and logo are submitted with the Home Assistant brands pull request.
+      The files under brand/ are the custom-component copies only.
+  common-modules:
+    status: done
+    comment: >-
+      The shared entity is in entity.py. There is no DataUpdateCoordinator.
+  config-flow: done
+  config-flow-test-coverage: done
+  dependency-transparency:
+    status: done
+    comment: >-
+      lightwave_smart 2.0.8 is the PyPI package lightwave-smart, built and
+      published by LightwaveSmartHome/lightwave-smart
+      .github/workflows/publish-pypi.yaml.
+  docs-actions:
+    status: todo
+    comment: Documented on the home-assistant.io page that ships with the Core pull request.
+  docs-conditions:
+    status: exempt
+    comment: The integration does not define its own conditions.
+  docs-high-level-description:
+    status: todo
+    comment: Documented on the home-assistant.io page that ships with the Core pull request.
+  docs-installation-instructions:
+    status: todo
+    comment: Documented on the home-assistant.io page that ships with the Core pull request.
+  docs-removal-instructions:
+    status: todo
+    comment: Documented on the home-assistant.io page that ships with the Core pull request.
+  docs-triggers:
+    status: exempt
+    comment: The integration does not define its own triggers. Button presses are event entities.
+  entity-event-setup: done
+  entity-unique-id: done
+  has-entity-name: done
+  runtime-data: done
+  test-before-configure: done
+  test-before-setup: done
+  unique-config-entry: done
+
+  # Silver
+  action-exceptions: done
+  config-entry-unloading: done
+  docs-configuration-parameters:
+    status: todo
+    comment: Documented on the home-assistant.io page that ships with the Core pull request.
+  docs-installation-parameters:
+    status: todo
+    comment: Documented on the home-assistant.io page that ships with the Core pull request.
+  entity-unavailable: done
+  integration-owner:
+    status: done
+    comment: manifest.json codeowners lists @ikb42. The Core CODEOWNERS line is added with the Core pull request.
+  log-when-unavailable: done
+  parallel-updates: done
+  reauthentication-flow: done
+  test-coverage: done
+
+  # Gold. Not part of this pass.
+  devices:
+    status: todo
+    comment: Outside the Silver target.
+  diagnostics:
+    status: todo
+    comment: Outside the Silver target.
+  discovery:
+    status: todo
+    comment: Zeroconf is already in the manifest. The Core discovery review is outside the Silver target.
+  discovery-update-info:
+    status: todo
+    comment: Outside the Silver target.
+  docs-data-update:
+    status: todo
+    comment: Outside the Silver target.
+  docs-examples:
+    status: todo
+    comment: Outside the Silver target.
+  docs-known-limitations:
+    status: todo
+    comment: Outside the Silver target.
+  docs-supported-devices:
+    status: todo
+    comment: Outside the Silver target.
+  docs-supported-functions:
+    status: todo
+    comment: Outside the Silver target.
+  docs-troubleshooting:
+    status: todo
+    comment: Outside the Silver target.
+  docs-use-cases:
+    status: todo
+    comment: Outside the Silver target.
+  dynamic-devices:
+    status: todo
+    comment: Outside the Silver target.
+  entity-category:
+    status: todo
+    comment: Outside the Silver target.
+  entity-device-class:
+    status: todo
+    comment: Outside the Silver target.
+  entity-disabled-by-default:
+    status: todo
+    comment: Outside the Silver target.
+  entity-translations:
+    status: todo
+    comment: Outside the Silver target. strings.json ships with the Core move.
+  exception-translations:
+    status: todo
+    comment: Outside the Silver target.
+  icon-translations:
+    status: todo
+    comment: Outside the Silver target.
+  reconfiguration-flow:
+    status: todo
+    comment: A reconfigure step exists. The Gold review is outside the Silver target.
+  repair-issues:
+    status: todo
+    comment: The link-disconnected repair exists. The Gold review is outside the Silver target.
+  stale-devices:
+    status: todo
+    comment: Outside the Silver target.
+
+  # Platinum
+  async-dependency:
+    status: todo
+    comment: Outside the Silver target.
+  inject-websession:
+    status: todo
+    comment: Outside the Silver target.
+  strict-typing:
+    status: todo
+    comment: Outside the Silver target.

@@ -1,5 +1,6 @@
 import logging
-from .const import LIGHTWAVE_LINK2, LIGHTWAVE_ENTITIES, SERVICE_SETBRIGHTNESS, DOMAIN
+from .const import DOMAIN
+from .entity import LightwaveEntity, async_lightwave_command, drop_firmware_callback
 from homeassistant.components.update import (
     UpdateDeviceClass,
     UpdateEntity, 
@@ -18,6 +19,7 @@ from .utils import (
 
 DEPENDENCIES = ['lightwave_smart']
 _LOGGER = logging.getLogger(__name__)
+PARALLEL_UPDATES = 1
 
 # https://developers.home-assistant.io/docs/core/entity/update/
 FIRMWARE_DESCRIPTION = UpdateEntityDescription(
@@ -31,7 +33,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, asyn
     """Set up update entities for Lightwave Smart devices."""
 
     fws = []
-    link = hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_LINK2]
+    link = config_entry.runtime_data.link
 
     for device_id in link.get_device_ids():
         try:
@@ -39,15 +41,16 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, asyn
                 fws.append(LWRF2Update(link.devices[device_id], FIRMWARE_DESCRIPTION))
         except Exception as e: _LOGGER.exception("Could not add LWRF2Update")
 
-    hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_ENTITIES].extend(fws)
+    config_entry.runtime_data.entities.extend(fws)
     async_add_entities(fws)
 
 
-class LWRF2Update(UpdateEntity):
+class LWRF2Update(LightwaveEntity, UpdateEntity):
     """Lightwave Firmware update entity."""
 
     _attr_should_poll = False
     _attr_assumed_state = False
+    _subscribe_featureset = False
 
     def __init__(self, device, entity_description):
         _LOGGER.debug(f"Adding Firmware update for device Id: {device.device_id}  name: {device.name}")
@@ -70,8 +73,14 @@ class LWRF2Update(UpdateEntity):
         
         self.in_progress = False
 
+    @property
+    def available(self) -> bool:
+        """Unavailable while the cloud link or this device cannot take an update."""
+        return super().available and self._device.firmware_update_allowed()
+
     async def async_added_to_hass(self) -> None:
         """Subscribe to events."""
+        await super().async_added_to_hass()
         await self._lwlink.async_register_firmware_event_callback(self._device_id, self.async_update_callback)
         await self._lwlink.async_register_connection_status_callback(self._device_id, self.async_update_callback)
         self._lwlink.register_connect_callback(self.async_update_callback)
@@ -88,10 +97,8 @@ class LWRF2Update(UpdateEntity):
         self._lwlink.unregister_connect_callback(self.async_update_callback)
         self._lwlink.unregister_disconnect_callback(self.async_update_callback)
         self._lwlink.unregister_connection_status_callback(self._device_id, self.async_update_callback)
-
-    @property
-    def available(self) -> bool:
-        return self._device.firmware_update_allowed()
+        drop_firmware_callback(self._lwlink, self._device_id, self.async_update_callback)
+        await super().async_will_remove_from_hass()
 
     @callback
     def async_update_callback(self, **kwargs):
@@ -148,6 +155,9 @@ class LWRF2Update(UpdateEntity):
                 f"{self._device.name} is not online, so the firmware update was not started"
             )
 
-        self.in_progress = await self._device.update_firmware(version or self.latest_version)
+        self.in_progress = await async_lightwave_command(
+            self._device.update_firmware(version or self.latest_version),
+            f"Could not start the firmware update for {self._device.name}",
+        )
         self.async_write_ha_state()
         

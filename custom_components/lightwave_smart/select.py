@@ -1,8 +1,8 @@
 import logging
-from .const import LIGHTWAVE_LINK2, LIGHTWAVE_ENTITIES, DOMAIN
 from homeassistant.components.select import SelectEntity, SelectEntityDescription
 from homeassistant.core import callback
 from homeassistant.helpers.entity import EntityCategory
+from .entity import LightwaveEntity, async_lightwave_command
 from .utils import (
     make_entity_device_info,
     get_extra_state_attributes
@@ -10,6 +10,7 @@ from .utils import (
 
 DEPENDENCIES = ['lightwave_smart']
 _LOGGER = logging.getLogger(__name__)
+PARALLEL_UPDATES = 1
 
 # colourSetup values used by the Lightwave app. See docs/L84V24x-feature-types.md.
 _COLOUR_SETUPS = (
@@ -90,7 +91,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     """Find and return Lightwave LED driver function selects."""
 
     selects = []
-    link = hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_LINK2]
+    link = config_entry.runtime_data.link
 
     for featureset_id, featureset in link.featuresets.items():
         if not _is_led_driver(featureset):
@@ -100,11 +101,11 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         except Exception:
             _LOGGER.exception("Could not add LWRF2ColourSetup")
 
-    hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_ENTITIES].extend(selects)
+    config_entry.runtime_data.entities.extend(selects)
     async_add_entities(selects)
 
 
-class LWRF2ColourSetup(SelectEntity):
+class LWRF2ColourSetup(LightwaveEntity, SelectEntity):
     """Function mode for a Lightwave LED driver.
 
     The current option stays unknown until colourSetup has a value.
@@ -148,10 +149,6 @@ class LWRF2ColourSetup(SelectEntity):
             return None
         return mode
 
-    async def async_added_to_hass(self):
-        """Subscribe to events."""
-        await self._lwlink.async_register_feature_callback(self._featureset_id, self.async_update_callback)
-
     @callback
     def async_update_callback(self, **kwargs):
         """Update the component's state."""
@@ -181,7 +178,10 @@ class LWRF2ColourSetup(SelectEntity):
         )
 
         self._mode = mode
-        await self._lwlink.async_write_feature_by_name(self._featureset_id, "colourSetup", mode)
+        await async_lightwave_command(
+            self._lwlink.async_write_feature_by_name(self._featureset_id, "colourSetup", mode),
+            "Could not set the colour setup",
+        )
         if write_map:
             _LOGGER.debug(
                 "colourOutputMap for %s does not match mode %s, writing default %s",
@@ -189,8 +189,11 @@ class LWRF2ColourSetup(SelectEntity):
                 mode,
                 _DEFAULT_OUTPUT_MAP[mode],
             )
-            await self._lwlink.async_write_feature_by_name(
-                self._featureset_id, "colourOutputMap", _DEFAULT_OUTPUT_MAP[mode]
+            await async_lightwave_command(
+                self._lwlink.async_write_feature_by_name(
+                    self._featureset_id, "colourOutputMap", _DEFAULT_OUTPUT_MAP[mode]
+                ),
+                "Could not set the colour output map",
             )
 
         self.async_write_ha_state()

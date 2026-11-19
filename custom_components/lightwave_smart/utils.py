@@ -51,30 +51,34 @@ def make_device_info(entity, name = None):
 
     return DeviceInfo(**device_info)
     
-def make_entity_device_info(entity, name = None):
-    via_identifier = entity._lwlink.get_linkPlus_featureset_id(entity._featureset_id)
-    if entity._gen2 and not entity._device.is_hub():
-        via_identifier = entity._device.device_id
-        
-    if entity._device.is_hub():
+def make_entity_device_info(entity, name = None, featureset=None):
+    featureset = featureset or entity._featureset
+    featureset_id = featureset.featureset_id
+    device = featureset.device
+    gen2 = featureset.is_gen2()
+    via_identifier = entity._lwlink.get_linkPlus_featureset_id(featureset_id)
+    if gen2 and not device.is_hub():
+        via_identifier = device.device_id
+
+    if device.is_hub():
         # Keep original name, which is set in __init__.py
         name = None
-        
+
     device_info = {
-        "identifiers": { (DOMAIN, entity._featureset_id) },
-        "manufacturer": entity._device.manufacturer_code,
-        "model": entity._device.product_code,
+        "identifiers": { (DOMAIN, featureset_id) },
+        "manufacturer": device.manufacturer_code,
+        "model": device.product_code,
     }
-    
+
     if name:
         device_info["name"] = name
 
-    via_device_id = _via_device_id(entity, via_identifier, entity._featureset_id)
+    via_device_id = _via_device_id(entity, via_identifier, featureset_id)
     if via_device_id:
         device_info["via_device_id"] = via_device_id
 
     # Applied only when Home Assistant first creates the device entry.
-    room_name = getattr(entity._featureset, "room_name", None) or getattr(entity._device, "room_name", None)
+    room_name = getattr(featureset, "room_name", None) or getattr(device, "room_name", None)
     if room_name:
         device_info["suggested_area"] = room_name
 

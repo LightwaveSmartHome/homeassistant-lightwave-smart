@@ -8,13 +8,9 @@ from .const import (
     CONF_REFRESH_TOKEN,
     CONF_TOKEN_EXPIRY,
     DOMAIN,
-    LIGHTWAVE_ENTITIES,
-    LIGHTWAVE_LINK2,
-    LIGHTWAVE_PLATFORMS,
-    SERVICE_RECONNECT,
-    SERVICE_RESET_ENABLED_STATUS_TO_DEFAULTS,
-    SERVICE_UPDATE,
 )
+from .runtime import LightwaveRuntimeData, get_runtime
+from .services import async_setup_services
 from homeassistant.config_entries import (
     ConfigEntry,
     ConfigEntryAuthFailed,
@@ -49,7 +45,6 @@ def async_central_callback(**kwargs):
 
 # Reconnect retries every 30 seconds. Wait longer than a deploy blip before a repair.
 _LINK_REPAIR_DELAY = 120
-_LINK_REPAIR_UNSUB = "link_repair_unsub"
 
 
 def _link_issue_id(entry_id):
@@ -61,30 +56,32 @@ def _clear_link_issue(hass, entry_id):
 
 
 def _cancel_link_repair_delay(hass, entry_id):
-    domain_data = hass.data.get(DOMAIN)
-    entry = domain_data.get(entry_id) if isinstance(domain_data, dict) else None
-    if not isinstance(entry, dict):
+    config_entry = hass.config_entries.async_get_entry(entry_id)
+    if config_entry is None:
         return
-    unsub = entry.pop(_LINK_REPAIR_UNSUB, None)
-    if unsub is not None:
-        unsub()
+    runtime = get_runtime(config_entry)
+    if runtime is None or runtime.link_repair_unsub is None:
+        return
+    runtime.link_repair_unsub()
+    runtime.link_repair_unsub = None
 
 
 def _schedule_link_repair(hass, entry_id):
     """Raise a repair only if this drop is still down after the reconnect window."""
-    domain_data = hass.data.get(DOMAIN)
-    entry = domain_data.get(entry_id) if isinstance(domain_data, dict) else None
-    if not isinstance(entry, dict) or entry.get(_LINK_REPAIR_UNSUB) is not None:
+    config_entry = hass.config_entries.async_get_entry(entry_id)
+    if config_entry is None:
+        return
+    runtime = get_runtime(config_entry)
+    if runtime is None or runtime.link_repair_unsub is not None:
         return
 
     @callback
     def _raise_if_still_down(_now):
-        current_domain = hass.data.get(DOMAIN)
-        current = current_domain.get(entry_id) if isinstance(current_domain, dict) else None
-        if not isinstance(current, dict):
+        current = get_runtime(config_entry)
+        if current is None:
             return
-        current.pop(_LINK_REPAIR_UNSUB, None)
-        link = current.get(LIGHTWAVE_LINK2)
+        current.link_repair_unsub = None
+        link = current.link
         if link is not None and link.connected:
             return
         ir.async_create_issue(
@@ -96,19 +93,18 @@ def _schedule_link_repair(hass, entry_id):
             translation_key="link_disconnected",
         )
 
-    entry[_LINK_REPAIR_UNSUB] = async_call_later(
+    runtime.link_repair_unsub = async_call_later(
         hass, _LINK_REPAIR_DELAY, _raise_if_still_down
     )
 
 
-def _iter_loaded_entries(hass: HomeAssistant):
-    """Yield (entry_id, entry_data) for loaded Lightwave config entries."""
-    domain_data = hass.data.get(DOMAIN)
-    if not isinstance(domain_data, dict):
+def _refresh_entity_availability(runtime):
+    """Write state so entities pick up the link's connected flag."""
+    if runtime is None:
         return
-    for entry_id, entry_data in list(domain_data.items()):
-        if isinstance(entry_data, dict) and LIGHTWAVE_LINK2 in entry_data:
-            yield entry_id, entry_data
+    for entity in list(runtime.entities):
+        if getattr(entity, "hass", None) is not None:
+            entity.async_write_ha_state()
 
 
 async def _safe_deactivate_link(link, source: str) -> None:
@@ -167,87 +163,11 @@ def _classify_connect_failure(
 
 
 async def async_setup(hass, config):
-
-    async def service_handle_reconnect(call):
-        _LOGGER.debug("Received service call reconnect")
-        for _entry_id, entry_data in _iter_loaded_entries(hass):
-            link = entry_data[LIGHTWAVE_LINK2]
-            try:
-                await link.async_deactivate(source="service_handle_reconnect")
-                await link.async_activate(
-                    source="service_handle_reconnect",
-                    connect_callback=link.async_get_hierarchy,
-                )
-            except Exception as e:
-                _LOGGER.error("Error reconnecting Lightwave link: %s", e)
-
-    async def service_handle_update_states(call):
-        _LOGGER.debug("Received service call update states")
-        for _entry_id, entry_data in _iter_loaded_entries(hass):
-            link = entry_data[LIGHTWAVE_LINK2]
-            await link.async_update_featureset_states()
-            for ent in entry_data.get(LIGHTWAVE_ENTITIES, ()):
-                if ent.hass is not None:
-                    ent.async_schedule_update_ha_state(True)
-
-    async def service_handle_reset_enabled_status_to_defaults(call):
-        """Reset enabled status to defaults."""
-        _LOGGER.debug("reset_enabled_status_to_defaults: Received service call reset enabled status to defaults")
-        entity_registry = er.async_get(hass)
-
-        count = 0
-        enabled_count = 0
-        for entry_id, entry_data in _iter_loaded_entries(hass):
-            config_entry = hass.config_entries.async_get_entry(entry_id)
-            if config_entry:
-                entities = entry_data.get(LIGHTWAVE_ENTITIES, ())
-                for entity_entry in er.async_entries_for_config_entry(entity_registry, entry_id):
-                    count += 1
-                    default_disabled = False
-
-                    entity_object = None
-                    for ent in entities:
-                        if hasattr(ent, "unique_id") and ent.unique_id == entity_entry.unique_id:
-                            entity_object = ent
-                            break
-
-                    if entity_object is None:
-                        _LOGGER.warning(
-                            f"reset_enabled_status_to_defaults: Could not find entity object for {entity_entry.entity_id}/{entity_entry.unique_id}"
-                        )
-                        continue
-
-                    default_disabled = not entity_object.entity_description.entity_registry_enabled_default
-                    if entity_entry.disabled == default_disabled:
-                        continue
-
-                    _LOGGER.info(
-                        f"reset_enabled_status_to_defaults: Entity {entity_entry.entity_id}/{entity_entry.unique_id} will be changed to disabled: {default_disabled}"
-                    )
-
-                    entity_registry.async_update_entity(
-                        entity_entry.entity_id,
-                        disabled_by=er.RegistryEntryDisabler.INTEGRATION if default_disabled else None,
-                    )
-                    enabled_count += 1
-
-        _LOGGER.info(
-            f"reset_enabled_status_to_defaults: Entities have been reset to defaults: {enabled_count} of {count}"
-        )
-
-    hass.services.async_register(DOMAIN, SERVICE_RECONNECT, service_handle_reconnect)
-    hass.services.async_register(DOMAIN, SERVICE_UPDATE, service_handle_update_states)
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_RESET_ENABLED_STATUS_TO_DEFAULTS,
-        service_handle_reset_enabled_status_to_defaults,
-    )
-
+    async_setup_services(hass)
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
-    hass.data.setdefault(DOMAIN, {})
     entry_id = config_entry.entry_id
     auth_method = config_entry.data.get(CONF_LW_AUTH_METHOD) or "password"
 
@@ -258,11 +178,21 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     )
 
     def _on_link_disconnect():
+        runtime = get_runtime(config_entry)
+        if runtime is not None and not runtime.unavailable_logged:
+            _LOGGER.info("Lightwave connection lost")
+            runtime.unavailable_logged = True
         _schedule_link_repair(hass, entry_id)
+        _refresh_entity_availability(runtime)
 
     def _on_link_connect():
+        runtime = get_runtime(config_entry)
+        if runtime is not None and runtime.unavailable_logged:
+            _LOGGER.info("Lightwave connection restored")
+            runtime.unavailable_logged = False
         _cancel_link_repair_delay(hass, entry_id)
         _clear_link_issue(hass, entry_id)
+        _refresh_entity_availability(runtime)
 
     link.register_disconnect_callback(_on_link_disconnect)
     link.register_connect_callback(_on_link_connect)
@@ -293,12 +223,8 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
         _clear_link_issue(hass, entry_id)
         raise _classify_connect_failure(link, auth_method, had_access_token)
 
-    entry_data = {
-        LIGHTWAVE_LINK2: link,
-        LIGHTWAVE_ENTITIES: [],
-        LIGHTWAVE_PLATFORMS: [],
-    }
-    hass.data[DOMAIN][entry_id] = entry_data
+    runtime = LightwaveRuntimeData(link=link)
+    config_entry.runtime_data = runtime
 
     try:
         device_registry = dr.async_get(hass)
@@ -326,14 +252,11 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
         await hass.config_entries.async_forward_entry_setups(
             config_entry, all_platforms
         )
-        entry_data[LIGHTWAVE_PLATFORMS].extend(all_platforms)
+        runtime.platforms.extend(all_platforms)
     except BaseException:
         await _safe_deactivate_link(link, "setup_platform_failed")
         _cancel_link_repair_delay(hass, entry_id)
         _clear_link_issue(hass, entry_id)
-        domain_data = hass.data.get(DOMAIN)
-        if isinstance(domain_data, dict):
-            domain_data.pop(entry_id, None)
         raise
 
     return True
@@ -346,17 +269,14 @@ async def async_unload_entry(
     entry_id = config_entry.entry_id
     _LOGGER.info("Unloading config entry: '%s' from %s", entry_id, source)
 
-    domain_data = hass.data.get(DOMAIN)
-    entry_data = domain_data.get(entry_id) if isinstance(domain_data, dict) else None
-    if not isinstance(entry_data, dict):
+    runtime = get_runtime(config_entry)
+    if runtime is None:
         _LOGGER.warning("Config entry '%s' was never loaded, skipping unload", entry_id)
         _cancel_link_repair_delay(hass, entry_id)
         _clear_link_issue(hass, entry_id)
-        if isinstance(domain_data, dict):
-            domain_data.pop(entry_id, None)
         return True
 
-    loaded_platforms = list(entry_data.get(LIGHTWAVE_PLATFORMS, ()))
+    loaded_platforms = list(runtime.platforms)
     unload_ok = True
     try:
         if loaded_platforms:
@@ -374,16 +294,13 @@ async def async_unload_entry(
         else:
             _LOGGER.warning("No platforms were loaded for config entry '%s'", entry_id)
     finally:
-        link = entry_data.get(LIGHTWAVE_LINK2)
-        if link is not None:
-            await _safe_deactivate_link(link, "async_unload_entry")
+        if runtime.link is not None:
+            await _safe_deactivate_link(runtime.link, "async_unload_entry")
 
         # A drop while platforms unload can start a repair. Cancel that wait and
         # delete any repair once the link has been stopped.
         _cancel_link_repair_delay(hass, entry_id)
         _clear_link_issue(hass, entry_id)
-        if isinstance(domain_data, dict):
-            domain_data.pop(entry_id, None)
 
     _LOGGER.info(
         "Finished unloading config entry: '%s' (ok=%s, platforms=%s)",

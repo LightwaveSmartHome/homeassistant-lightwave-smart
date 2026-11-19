@@ -1,6 +1,6 @@
 import logging
 import traceback
-from .const import LIGHTWAVE_LINK2, LIGHTWAVE_ENTITIES, SERVICE_SETBRIGHTNESS, DOMAIN
+from .entity import LightwaveEntity
 from homeassistant.components.event import (
     EventDeviceClass,
     EventEntity,
@@ -18,6 +18,7 @@ from .utils import (
 
 DEPENDENCIES = ['lightwave_smart']
 _LOGGER = logging.getLogger(__name__)
+PARALLEL_UPDATES = 0
 
 ATTRIBUTES = [ None, "Up", "Down" ]
 TYPES = [ "Short", "Long", "Long-Release" ]
@@ -49,7 +50,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, asyn
     """Find and return Lightwave uibuttons."""
 
     uibuttons = []
-    link = hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_LINK2]
+    link = config_entry.runtime_data.link
 
     for featureset_id, name in link.get_uiButtonPair_producers():
         try:
@@ -62,11 +63,11 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, asyn
         except Exception as e: _LOGGER.exception("Could not add LWRF2UIButton")
         
 
-    hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_ENTITIES].extend(uibuttons)
+    config_entry.runtime_data.entities.extend(uibuttons)
     async_add_entities(uibuttons)
 
 
-class LWRF2UIButton(EventEntity):
+class LWRF2UIButton(LightwaveEntity, EventEntity):
     """Representation of a Lightwave uibutton."""
 
     _attr_should_poll = False
@@ -91,8 +92,8 @@ class LWRF2UIButton(EventEntity):
 
     async def async_added_to_hass(self) -> None:
         """Subscribe to events."""
-        await self._lwlink.async_register_feature_callback(self._featureset_id, self.async_update_callback)
-        
+        await super().async_added_to_hass()
+
         # HomeKit Device does not replace multi-press events. Clear a hide
         # left by older companion mode so they stay available.
         registry = er.async_get(self.hass)

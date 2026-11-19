@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import pytest
 from homeassistant.config_entries import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.const import CONF_PASSWORD, CONF_TOKEN, CONF_USERNAME
 from homeassistant.helpers import config_entry_oauth2_flow, device_registry as dr, entity_registry as er, issue_registry as ir
 from homeassistant.helpers.entity_platform import async_get_platforms
@@ -32,9 +33,6 @@ from custom_components.lightwave_smart.const import (
     CONF_LW_AUTH_METHOD,
     CONF_REFRESH_TOKEN,
     DOMAIN,
-    LIGHTWAVE_ENTITIES,
-    LIGHTWAVE_LINK2,
-    LIGHTWAVE_PLATFORMS,
 )
 from custom_components.lightwave_smart.utils import set_stored_tokens
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
@@ -79,7 +77,7 @@ async def test_password_setup_unload_and_services(hass, mock_link, link_script):
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     assert device_reg.async_get_device_by_identifier((DOMAIN, "gone"), entry.entry_id) is None
-    assert hass.data[DOMAIN][entry.entry_id][LIGHTWAVE_LINK2] is link_script.links[-1]
+    assert entry.runtime_data.link is link_script.links[-1]
 
     link = link_script.links[-1]
     refresh = getattr(link.auth, "_token_refresh_callback", None) or getattr(link.auth, "token_refresh_callback", None)
@@ -113,13 +111,14 @@ async def test_password_setup_unload_and_services(hass, mock_link, link_script):
         suggested_object_id="missing_object",
     )
     dummy = type("Dummy", (), {"hass": None, "unique_id": "dummy"})()
-    hass.data[DOMAIN][entry.entry_id][LIGHTWAVE_ENTITIES].append(dummy)
+    entry.runtime_data.entities.append(dummy)
 
     await hass.services.async_call(DOMAIN, "update_states", {}, blocking=True)
     await hass.services.async_call(DOMAIN, "reset_enabled_status_to_defaults", {}, blocking=True)
 
     link._ws.deactivate_error = RuntimeError("reconnect")
-    await hass.services.async_call(DOMAIN, "reconnect", {}, blocking=True)
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call(DOMAIN, "reconnect", {}, blocking=True)
     link._ws.deactivate_error = None
 
     async_central_callback()
@@ -131,7 +130,7 @@ async def test_link_repair_issue(hass, mock_link):
     entry = _entry(hass, _password_data())
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    link = hass.data[DOMAIN][entry.entry_id][LIGHTWAVE_LINK2]
+    link = entry.runtime_data.link
     issue_id = f"{entry.entry_id}_link_disconnected"
 
     link._ws.fire_disconnect()
@@ -374,7 +373,7 @@ async def test_unload_edges(hass, mock_link):
     entry = _entry(hass, _password_data())
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    hass.data[DOMAIN][entry.entry_id][LIGHTWAVE_PLATFORMS] = []
+    entry.runtime_data.platforms.clear()
     assert await async_unload_entry(hass, entry) is True
     await hass.config_entries.async_unload_platforms(entry, [*PLATFORMS_FIRMWARE, *PLATFORMS])
     await hass.async_block_till_done()

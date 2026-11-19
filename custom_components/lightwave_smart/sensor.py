@@ -1,5 +1,5 @@
 import logging
-from .const import LIGHTWAVE_LINK2, LIGHTWAVE_ENTITIES, DOMAIN
+from .entity import LightwaveEntity
 from homeassistant.components.sensor import SensorEntity, SensorEntityDescription
 # State Classes
 try:
@@ -64,6 +64,7 @@ RECOMMENDED_LUX_LEVEL = 300
 
 DEPENDENCIES = ['lightwave_smart']
 _LOGGER = logging.getLogger(__name__)
+PARALLEL_UPDATES = 0
 
 
 SENSORS_PRIMARY = [
@@ -171,7 +172,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     """Find and return Lightwave sensors."""
 
     sensors = []
-    link = hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_LINK2]
+    link = config_entry.runtime_data.link
 
     for featureset_id, featureset in link.featuresets.items():
         for description in SENSORS_PRIMARY + SENSORS_CLIMATE:
@@ -194,10 +195,10 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             ), hass))
         except Exception as e: _LOGGER.exception("Could not add LWRF2EventSensor")
 
-    hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_ENTITIES].extend(sensors)
+    config_entry.runtime_data.entities.extend(sensors)
     async_add_entities(sensors)
 
-class LWRF2Sensor(SensorEntity):
+class LWRF2Sensor(LightwaveEntity, SensorEntity):
     """Representation of a LightwaveRF sensor."""
 
     _attr_has_entity_name = True
@@ -224,7 +225,7 @@ class LWRF2Sensor(SensorEntity):
 
     async def async_added_to_hass(self):
         """Subscribe to events."""
-        await self._lwlink.async_register_feature_callback(self._featureset_id, self.async_update_callback)
+        await super().async_added_to_hass()
         # The startup read is a background task and can finish after __init__
         # but before this callback is registered. Read the current value before
         # Home Assistant writes the first state.
@@ -323,12 +324,13 @@ class LWRF2Sensor(SensorEntity):
         return start + timedelta(seconds=seconds)
 
 
-class LWRF2EventSensor(SensorEntity):
+class LWRF2EventSensor(LightwaveEntity, SensorEntity):
     """Representation of a LightwaveRF sensor."""
 
     _attr_has_entity_name = True
     _attr_should_poll = False
     _attr_assumed_state = False
+    _subscribe_featureset = False
 
     def __init__(self, name, featureset_id, link, description, hass):
         _LOGGER.debug("Adding event sensor: %s - %s - %s ", name, description.key, featureset_id)
@@ -350,8 +352,9 @@ class LWRF2EventSensor(SensorEntity):
 
     async def async_added_to_hass(self):
         """Subscribe to events."""
+        await super().async_added_to_hass()
         # This will be a noisy event, perhaps it should be a switchable option
-        await self._lwlink.async_register_general_callback(self.async_update_callback)
+        await self.async_subscribe_general()
 
     @callback
     def async_update_callback(self, **kwargs):

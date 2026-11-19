@@ -1,5 +1,5 @@
 import logging
-from .const import LIGHTWAVE_LINK2, LIGHTWAVE_ENTITIES, CONF_HOMEKIT, DOMAIN
+from .const import CONF_HOMEKIT
 from homeassistant.components.switch import (
     SwitchEntity,
     SwitchDeviceClass,
@@ -7,6 +7,7 @@ from homeassistant.components.switch import (
 )
 from homeassistant.helpers import entity_registry as er
 from homeassistant.core import callback
+from .entity import LightwaveEntity, async_lightwave_command
 from .utils import (
     make_entity_device_info,
     get_extra_state_attributes
@@ -15,6 +16,7 @@ from .utils import (
 
 DEPENDENCIES = ['lightwave_smart']
 _LOGGER = logging.getLogger(__name__)
+PARALLEL_UPDATES = 1
 
 SOCKET = SwitchEntityDescription(
     key="smartSocket",
@@ -33,7 +35,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     """Find and return Lightwave switches."""
 
     switches = []
-    link = hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_LINK2]
+    link = config_entry.runtime_data.link
 
     homekit = config_entry.options.get(CONF_HOMEKIT, False)
     for featureset_id, name in link.get_switches():
@@ -46,10 +48,10 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             switches.append(LWRF2Switch(name, featureset_id, link, homekit, SOCKET))
         except Exception as e: _LOGGER.exception("Could not add socket LWRF2Switch")
 
-    hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_ENTITIES].extend(switches)
+    config_entry.runtime_data.entities.extend(switches)
     async_add_entities(switches)
 
-class LWRF2Switch(SwitchEntity):
+class LWRF2Switch(LightwaveEntity, SwitchEntity):
     """Representation of a LightwaveRF socket/switch."""
 
     _attr_has_entity_name = True
@@ -81,7 +83,7 @@ class LWRF2Switch(SwitchEntity):
 
     async def async_added_to_hass(self):
         """Subscribe to events."""
-        await self._lwlink.async_register_feature_callback(self._featureset_id, self.async_update_callback)
+        await super().async_added_to_hass()
         registry = er.async_get(self.hass)
         entity_entry = registry.async_get(self.entity_id)
         if self._homekit and self._gen2:
@@ -113,14 +115,18 @@ class LWRF2Switch(SwitchEntity):
 
     async def async_turn_on(self, **kwargs):
         """Turn the Lightwave switch on."""
-        # self._state = True
-        await self._lwlink.async_turn_on_by_featureset_id(self._featureset_id)
+        await async_lightwave_command(
+            self._lwlink.async_turn_on_by_featureset_id(self._featureset_id),
+            "Could not turn the switch on",
+        )
         self.async_schedule_update_ha_state()
 
     async def async_turn_off(self, **kwargs):
         """Turn the Lightwave switch off."""
-        # self._state = False
-        await self._lwlink.async_turn_off_by_featureset_id(self._featureset_id)
+        await async_lightwave_command(
+            self._lwlink.async_turn_off_by_featureset_id(self._featureset_id),
+            "Could not turn the switch off",
+        )
         self.async_schedule_update_ha_state()
 
     @property

@@ -1,8 +1,8 @@
 import logging
-from .const import LIGHTWAVE_LINK2, LIGHTWAVE_ENTITIES, DOMAIN
 from homeassistant.components.lock import LockEntity, LockEntityDescription, LockEntityFeature
 from homeassistant.core import callback
 from homeassistant.helpers.entity import EntityCategory
+from .entity import LightwaveEntity, async_lightwave_command
 from .utils import (
     make_entity_device_info,
     get_extra_state_attributes
@@ -10,6 +10,7 @@ from .utils import (
 
 DEPENDENCIES = ['lightwave_smart']
 _LOGGER = logging.getLogger(__name__)
+PARALLEL_UPDATES = 1
 
 LOCK = LockEntityDescription(
     key="lock",
@@ -21,17 +22,17 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     """Find and return Lightwave devices that are lockable."""
 
     locks = []
-    link = hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_LINK2]
+    link = config_entry.runtime_data.link
 
     for featureset_id, name in link.get_with_feature("protection"):
         try:
             locks.append(LWRF2Lock(name, featureset_id, link, LOCK))
         except Exception as e: _LOGGER.exception("Could not add LWRF2Lock")
 
-    hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_ENTITIES].extend(locks)
+    config_entry.runtime_data.entities.extend(locks)
     async_add_entities(locks)
 
-class LWRF2Lock(LockEntity):
+class LWRF2Lock(LightwaveEntity, LockEntity):
     """Representation of a LightwaveRF light."""
 
     _attr_has_entity_name = True
@@ -57,12 +58,6 @@ class LWRF2Lock(LockEntity):
         self._attr_device_info = make_entity_device_info(self, name)
 
 
-    async def async_added_to_hass(self):
-        """Subscribe to events."""
-        await self._lwlink.async_register_feature_callback(self._featureset_id, self.async_update_callback)
-
-    #TODO add async_will_remove_from_hass() to clean up
-
     @callback
     def async_update_callback(self, **kwargs):
         """Update the component's state."""
@@ -84,7 +79,10 @@ class LWRF2Lock(LockEntity):
 
         self._state = 1
         feature_id = self._featureset.features['protection'].id
-        await self._lwlink.async_write_feature(feature_id, 1)
+        await async_lightwave_command(
+            self._lwlink.async_write_feature(feature_id, 1),
+            "Could not lock the device",
+        )
 
         self.async_schedule_update_ha_state()
 
@@ -94,7 +92,10 @@ class LWRF2Lock(LockEntity):
 
         self._state = 0
         feature_id = self._featureset.features['protection'].id
-        await self._lwlink.async_write_feature(feature_id, 0)
+        await async_lightwave_command(
+            self._lwlink.async_write_feature(feature_id, 0),
+            "Could not unlock the device",
+        )
 
         self.async_schedule_update_ha_state()
 

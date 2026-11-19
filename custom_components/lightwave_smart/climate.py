@@ -1,5 +1,5 @@
 import logging
-from .const import LIGHTWAVE_LINK2, LIGHTWAVE_ENTITIES, DOMAIN
+from .entity import LightwaveEntity, async_lightwave_command
 from homeassistant.const import ATTR_TEMPERATURE, STATE_OFF
 from homeassistant.components.climate import (
     ClimateEntity, 
@@ -42,6 +42,7 @@ from .utils import (
 
 DEPENDENCIES = ['lightwave_smart']
 _LOGGER = logging.getLogger(__name__)
+PARALLEL_UPDATES = 1
 PRESET_NAMES = {"Auto": None, "20%": 20, "40%": 40, "60%": 60, "80%": 80, "100%": 100}
 DEFAULT_AUTO_TARGET_TEMP = 20.0
 
@@ -56,7 +57,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     """Find and return Lightwave thermostats."""
 
     climates = []
-    link = hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_LINK2]
+    link = config_entry.runtime_data.link
 
     for featureset_id, name in link.get_climates():
         try:
@@ -64,11 +65,11 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         except Exception as e: _LOGGER.exception("Could not add LWRF2Climate")
 
 
-    hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_ENTITIES].extend(climates)
+    config_entry.runtime_data.entities.extend(climates)
     async_add_entities(climates)
 
 
-class LWRF2Climate(ClimateEntity):
+class LWRF2Climate(LightwaveEntity, ClimateEntity):
     """Representation of a LightwaveRF thermostat."""
 
     _attr_has_entity_name = True
@@ -137,10 +138,6 @@ class LWRF2Climate(ClimateEntity):
             self._target_humidity = self._featureset.features["targetHumidity"].state
 
         self._apply_preset_mode()
-
-    async def async_added_to_hass(self):
-        """Subscribe to events."""
-        await self._lwlink.async_register_feature_callback(self._featureset_id, self.async_update_callback)
 
     @callback
     def async_update_callback(self, **kwargs):
@@ -224,21 +221,29 @@ class LWRF2Climate(ClimateEntity):
             self._target_temperature = kwargs[ATTR_TEMPERATURE]
             self._last_tt = self._target_temperature
 
-        await self._lwlink.async_set_temperature_by_featureset_id(
-            self._featureset_id, self._target_temperature)
+        await async_lightwave_command(
+            self._lwlink.async_set_temperature_by_featureset_id(
+                self._featureset_id, self._target_temperature
+            ),
+            "Could not set the temperature",
+        )
 
     async def async_set_humidity(self, humidity):
         feature_id = self._featureset.features['targetHumidity'].id
-        await self._lwlink.async_write_feature(feature_id, humidity)
+        await async_lightwave_command(
+            self._lwlink.async_write_feature(feature_id, humidity),
+            "Could not set the humidity",
+        )
 
     async def async_set_hvac_mode(self, hvac_mode):
         feature_id = self._featureset.features['heatState'].id
         _LOGGER.debug("Received mode set request: %s ", hvac_mode)
         _LOGGER.debug("Setting feature ID: %s ", feature_id)
-        if hvac_mode == HVAC_MODE_OFF:
-            await self._lwlink.async_write_feature(feature_id, 0)
-        else:
-            await self._lwlink.async_write_feature(feature_id, 1)
+        value = 0 if hvac_mode == HVAC_MODE_OFF else 1
+        await async_lightwave_command(
+            self._lwlink.async_write_feature(feature_id, value),
+            "Could not set the heating mode",
+        )
 
     async def async_update(self):
         """Update state"""
@@ -314,13 +319,20 @@ class LWRF2Climate(ClimateEntity):
                 else DEFAULT_AUTO_TARGET_TEMP
             )
             self._last_tt = self._target_temperature
-            await self._lwlink.async_set_temperature_by_featureset_id(
-                self._featureset_id, self._target_temperature)
+            await async_lightwave_command(
+                self._lwlink.async_set_temperature_by_featureset_id(
+                    self._featureset_id, self._target_temperature
+                ),
+                "Could not set the temperature",
+            )
         else:
             feature_id = self._featureset.features['valveLevel'].id
             _LOGGER.debug("Received preset set request: %s ", preset_mode)
             _LOGGER.debug("Setting feature ID: %s ", feature_id)
-            await self._lwlink.async_write_feature(feature_id, PRESET_NAMES[preset_mode])
+            await async_lightwave_command(
+                self._lwlink.async_write_feature(feature_id, PRESET_NAMES[preset_mode]),
+                "Could not set the preset",
+            )
 
     @property
     def preset_modes(self):

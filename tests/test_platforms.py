@@ -9,7 +9,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 
 from custom_components.lightwave_smart.climate import CURRENT_HVAC_OFF
-from custom_components.lightwave_smart.const import CONF_HOMEKIT, CONF_LW_AUTH_METHOD, DOMAIN, LIGHTWAVE_ENTITIES, LIGHTWAVE_LINK2
+from custom_components.lightwave_smart.const import CONF_HOMEKIT, CONF_LW_AUTH_METHOD, DOMAIN
 from custom_components.lightwave_smart.light import (
     _off_led_name,
     _remove_light_entity,
@@ -31,11 +31,11 @@ def _eid(hass, domain, unique_id):
 
 
 def _entities(hass, entry):
-    return hass.data[DOMAIN][entry.entry_id][LIGHTWAVE_ENTITIES]
+    return entry.runtime_data.entities
 
 
 def _link(hass, entry):
-    return hass.data[DOMAIN][entry.entry_id][LIGHTWAVE_LINK2]
+    return entry.runtime_data.link
 
 
 async def _setup(hass, options=None, before=None):
@@ -99,6 +99,10 @@ async def test_platforms_create_entities_and_actions(hass, mock_link):
     entities = _entities(hass, entry)
 
     assert _eid(hass, "light", "s1-dimmer_offLed") == "light.old_off_led"
+    off_led = next(entity for entity in entities if entity.unique_id == "s1-dimmer_offLed")
+    assert off_led.has_entity_name is True
+    assert off_led.name == "Off LED"
+    assert (DOMAIN, "s1-dimmer-a") in off_led.device_info["identifiers"]
     assert registry.async_get_entity_id("light", DOMAIN, "s1-dimmer-a_ledIndicator") is None
     assert registry.async_get_entity_id("light", DOMAIN, "s1-mk4_offLed") is None
     assert _eid(hass, "light", "s1-mk4-fs_uiLEDOnColour") is not None

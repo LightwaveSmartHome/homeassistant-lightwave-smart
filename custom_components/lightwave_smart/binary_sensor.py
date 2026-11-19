@@ -1,6 +1,7 @@
 from datetime import timedelta
 import logging
-from .const import LIGHTWAVE_LINK2, LIGHTWAVE_ENTITIES, CONF_HOMEKIT, DOMAIN
+from .const import CONF_HOMEKIT
+from .entity import LightwaveEntity
 from homeassistant.components.binary_sensor import BinarySensorEntity, BinarySensorEntityDescription
 # Device Classes
 try:
@@ -25,6 +26,7 @@ from .utils import (
 
 DEPENDENCIES = ['lightwave_smart']
 _LOGGER = logging.getLogger(__name__)
+PARALLEL_UPDATES = 0
 _LINK_LAST_EVENT_REFRESH_INTERVAL = timedelta(seconds=60)
 
 SENSORS = [
@@ -68,7 +70,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     """Find and return Lightwave sensors."""
 
     sensors = []
-    link = hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_LINK2]
+    link = config_entry.runtime_data.link
 
     homekit = config_entry.options.get(CONF_HOMEKIT, False)
 
@@ -85,10 +87,10 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         except Exception:
             _LOGGER.exception("Could not add LWRF2LinkBinarySensor")
 
-    hass.data[DOMAIN][config_entry.entry_id][LIGHTWAVE_ENTITIES].extend(sensors)
+    config_entry.runtime_data.entities.extend(sensors)
     async_add_entities(sensors)
 
-class LWRF2BinarySensor(BinarySensorEntity):
+class LWRF2BinarySensor(LightwaveEntity, BinarySensorEntity):
     """Representation of a LightwaveRF window sensor."""
 
     _attr_has_entity_name = True
@@ -121,7 +123,7 @@ class LWRF2BinarySensor(BinarySensorEntity):
 
     async def async_added_to_hass(self):
         """Subscribe to events."""
-        await self._lwlink.async_register_feature_callback(self._featureset_id, self.async_update_callback)
+        await super().async_added_to_hass()
         registry = er.async_get(self.hass)
         entity_entry = registry.async_get(self.entity_id)
         hide = self._homekit and self.entity_description.key in _HOMEKIT_HIDDEN_FEATURES
@@ -154,11 +156,15 @@ class LWRF2BinarySensor(BinarySensorEntity):
         return get_extra_state_attributes(self)
 
 
-class LWRF2LinkBinarySensor(BinarySensorEntity):
-    """Cloud link for a hub. Not hidden by the HomeKit option."""
+class LWRF2LinkBinarySensor(LightwaveEntity, BinarySensorEntity):
+    """Cloud link for a hub. Not hidden by the HomeKit option.
+
+    This entity stays available when the websocket drops so it can report off.
+    """
 
     _attr_has_entity_name = True
     _attr_should_poll = False
+    _subscribe_featureset = False
     _attr_device_class = DEVICE_CLASS_CONNECTIVITY
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_name = "Cloud Link"
@@ -194,8 +200,14 @@ class LWRF2LinkBinarySensor(BinarySensorEntity):
     def _current_snapshot(self):
         return (self.is_on, self._last_event_iso())
 
+    @property
+    def available(self) -> bool:
+        """Stay available so a dropped link is reported as off."""
+        return True
+
     async def async_added_to_hass(self):
         """Subscribe to link up and down. Do not apply the HomeKit hide."""
+        await super().async_added_to_hass()
         self._lwlink.register_connect_callback(self._async_link_changed)
         self._lwlink.register_disconnect_callback(self._async_link_changed)
         self._last_written_snapshot = self._current_snapshot()
@@ -212,6 +224,7 @@ class LWRF2LinkBinarySensor(BinarySensorEntity):
             self._unsub_interval = None
         self._lwlink.unregister_connect_callback(self._async_link_changed)
         self._lwlink.unregister_disconnect_callback(self._async_link_changed)
+        await super().async_will_remove_from_hass()
 
     @callback
     def _async_link_changed(self):
