@@ -453,6 +453,7 @@ async def test_homekit_hides_cloud_features(hass, mock_link):
     assert hidden("light", "s1-mk4-fs_uiLEDOnColour") is None
     assert hidden("switch", "s1-gen1-fs_smartSwitch") is None
     assert hidden("binary_sensor", "s1-hub_cloudLink") is None
+    assert hidden("binary_sensor", "s1-dimmer_connectivity") is None
     assert hidden("climate", "s1-trv-fs_thermostat") is None
     assert hidden("cover", "s1-cover-fs_cover") is None
     assert hidden("lock", "s1-socket-fs_lock") is None
@@ -475,3 +476,24 @@ async def test_event_sensor_constructor_is_caught(hass, mock_link):
         await sensor_mod.async_setup_entry(hass, entry, lambda entities: None)
     finally:
         sensor_mod.LWRF2EventSensor = real
+
+
+async def test_parent_device_custom_name_survives_reload(hass, mock_link):
+    entry = await _setup(hass)
+    registry = er.async_get(hass)
+    entity_id = _eid(hass, "update", "s1-dimmer_firmware")
+    assert entity_id is not None
+    from homeassistant.helpers import device_registry as dr
+
+    device_reg = dr.async_get(hass)
+    device_id = registry.async_get(entity_id).device_id
+    registry.async_update_entity(entity_id, name="Dimmer firmware custom")
+
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    restored = registry.async_get(_eid(hass, "update", "s1-dimmer_firmware"))
+    assert restored is not None
+    assert restored.name == "Dimmer firmware custom"
+    assert restored.device_id == device_id
+    assert device_reg.async_get(device_id) is not None

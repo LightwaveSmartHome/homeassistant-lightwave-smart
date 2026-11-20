@@ -31,6 +31,7 @@ class LinkScript:
         self.token_rejected = False
         self.last_error: Exception | None = None
         self.links: list = []
+        self.after_prepare = None
 
 
 @pytest.fixture
@@ -46,6 +47,8 @@ def mock_link(link_script: LinkScript):
     def factory(*args, **kwargs):
         link = real(*args, **kwargs)
         websocket = prepare_link(link)
+        if link_script.after_prepare is not None:
+            link_script.after_prepare(link)
         if link_script.deactivate_raises:
             websocket.deactivate_error = RuntimeError("deactivate failed")
         if link_script.token_rejected and getattr(link, "auth", None) is not None:

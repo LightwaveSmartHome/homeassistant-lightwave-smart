@@ -21,7 +21,7 @@ rules:
   dependency-transparency:
     status: done
     comment: >-
-      lightwave_smart 2.0.8 is the PyPI package lightwave-smart, built and
+      lightwave_smart 2.0.10 is the PyPI package lightwave-smart, built and
       published by LightwaveSmartHome/lightwave-smart
       .github/workflows/publish-pypi.yaml.
   docs-actions:

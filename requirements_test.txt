@@ -1,2 +1,2 @@
-lightwave_smart==2.0.8
+lightwave_smart==2.0.10
 pytest-homeassistant-custom-component==0.13.375

@@ -89,7 +89,7 @@ Entities for all your devices on that Lightwave account will be created in Home 
 
 At first only the hub may show, because the other entities are created in the background. Go back to the overview and your devices should appear within a few seconds.
 
-The integration options include Hide entities from HomeKit. When that is on, generation 2 switches and lights are hidden, and so are window, motion, socket-in-use, and call-for-heat sensors. Button events, firmware updates, digital inputs, thermostats, covers, locks, power and energy sensors, and indicator LEDs stay visible. Generation 1 switches and lights stay visible. Hidden entities are hidden in Home Assistant, which keeps them out of HomeKit.
+The integration options include Hide entities from HomeKit. When that is on, generation 2 switches and lights are hidden, and so are window, motion, socket-in-use, and call-for-heat sensors. Button events, firmware updates, connectivity sensors, digital inputs, thermostats, covers, locks, power and energy sensors, and indicator LEDs stay visible. Generation 1 switches and lights stay visible. Hidden entities are hidden in Home Assistant, which keeps them out of HomeKit.
 
 ## Updates
 
@@ -110,9 +110,9 @@ Every feature reported by a Lightwave device is also exposed as a read-only attr
 
 For generation 2 lights, the brightness can be set without turning the light on using `lightwave_smart.set_brightness`. Brightness is 0 to 255.
 
-Generation 2 devices have a firmware update entity, and that entity can install an update.
+Generation 2 devices have a firmware update entity, and that entity can install an update. Each of those devices also has one Connectivity sensor. It covers every gang on that device, because they share one radio. It is on while the hub can reach the device, and off when the hub reports it disconnected. It is unavailable when that status is not known, when Home Assistant cannot reach the Lightwave service, or when the hub's own connection to the service has been down long enough that this integration no longer trusts the last status. Connect Series devices do not have this sensor.
 
-Each hub has a Cloud Link sensor. Home Assistant raises a repair when the connection is still down two minutes after it drops, and removes it when the link connects again. That sensor stays visible when Hide entities from HomeKit is on.
+Each hub has a Cloud Link sensor. It is on while Home Assistant can hear the Lightwave service and that hub's own connection to the service is up. A brief drop in the hub's connection does not turn it off. Home Assistant raises a repair when its own connection is still down two minutes after it drops, and removes the repair when that connection is back. The repair is not raised when only the hub's connection drops. Cloud Link stays visible when Hide entities from HomeKit is on.
 
 A device that Home Assistant is creating for the first time is suggested for the Lightwave room it belongs to. A device that is already set up keeps its area, including when that area is empty.
 

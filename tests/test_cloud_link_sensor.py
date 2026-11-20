@@ -18,6 +18,8 @@ class FakeLink:
         self.last_event = None
         self.connect_callbacks = []
         self.disconnect_callbacks = []
+        self.connection_callbacks = []
+        self.latched = False
 
         device = SimpleNamespace(
             device_id="s1-1-99+0",
@@ -58,6 +60,19 @@ class FakeLink:
     def unregister_disconnect_callback(self, cb):
         if cb in self.disconnect_callbacks:
             self.disconnect_callbacks.remove(cb)
+
+    def link_is_latched_offline(self, _device_id):
+        return self.latched
+
+    async def async_register_connection_status_callback(self, device_id, callback):
+        pair = (device_id, callback)
+        if pair not in self.connection_callbacks:
+            self.connection_callbacks.append(pair)
+
+    def unregister_connection_status_callback(self, device_id, callback):
+        pair = (device_id, callback)
+        if pair in self.connection_callbacks:
+            self.connection_callbacks.remove(pair)
 
 
 def test_extra_state_attributes_omits_last_event_until_first_notification():
@@ -106,6 +121,7 @@ async def test_periodic_refresh_writes_only_on_change_and_cleans_up(monkeypatch)
     assert tracked["interval"] == _LINK_LAST_EVENT_REFRESH_INTERVAL
     assert len(link.connect_callbacks) == 1
     assert len(link.disconnect_callbacks) == 1
+    assert link.connection_callbacks == [("s1-1-99+0", sensor._async_link_changed)]
 
     tracked["action"](None)
     assert writes == []
@@ -135,6 +151,7 @@ async def test_periodic_refresh_writes_only_on_change_and_cleans_up(monkeypatch)
     assert unsubbed["count"] == 1
     assert link.connect_callbacks == []
     assert link.disconnect_callbacks == []
+    assert link.connection_callbacks == []
 
 
 @pytest.mark.asyncio
@@ -191,6 +208,80 @@ async def test_cloud_link_sensor_with_real_lwlink2_across_reconnect(monkeypatch)
             "items": [{"payload": {"featureId": "s1-10-99+2", "value": 120}}]
         })
         assert sensor.extra_state_attributes["last_event"] == "2026-11-14T20:05:00+00:00"
+    finally:
+        await sensor.async_will_remove_from_hass()
+        await link.async_deactivate(source="cleanup")
+        assert hub_dev._connection_status_callbacks == []
+
+
+@pytest.mark.asyncio
+async def test_cloud_link_turns_off_when_the_hub_websocket_latches(monkeypatch):
+    link = FakeLink()
+    sensor = LWRF2LinkBinarySensor("Hub", "s1-hubgrp", link)
+    sensor.hass = object()
+    scheduled = []
+    sensor.async_schedule_update_ha_state = lambda *args: scheduled.append(sensor.is_on)
+    monkeypatch.setattr(bs_mod, "async_track_time_interval", lambda *_: lambda: None)
+
+    await sensor.async_added_to_hass()
+    assert sensor.is_on is True
+
+    link.latched = True
+    sensor._async_link_changed(device_id=link.featuresets["s1-hubgrp"].device.device_id)
+    assert scheduled == [False]
+    assert sensor.is_on is False
+
+    link.latched = False
+    link.connected = True
+    sensor._async_link_changed()
+    assert sensor.is_on is True
+
+    await sensor.async_will_remove_from_hass()
+
+
+@pytest.mark.asyncio
+async def test_cloud_link_follows_a_real_hub_websocket_latch(monkeypatch):
+    from lightwave_smart.device import LWRFDevice, LWRFFeatureSet
+    from lightwave_smart.link import LWLink2
+    import lightwave_smart.link as link_mod
+
+    monkeypatch.setattr(bs_mod, "async_track_time_interval", lambda *_: lambda: None)
+    monkeypatch.setattr(link_mod, "_LINK_OFFLINE_GRACE_SECS", 0)
+
+    link = LWLink2()
+    hub_dev = LWRFDevice()
+    hub_dev.link = link
+    hub_dev.device_id = "s1-1-99+0"
+    hub_dev.product_code = "L2"
+    hub_dev.manufacturer_code = "LightwaveRF"
+    hub_fs = LWRFFeatureSet()
+    hub_fs.link = link
+    hub_fs.featureset_id = "s1-hubgrp"
+    hub_fs.device = hub_dev
+    hub_dev.add_featureset(hub_fs)
+    link.devices = {hub_dev.device_id: hub_dev}
+    link.featuresets = {hub_fs.featureset_id: hub_fs}
+
+    class _OpenSocket:
+        closed = False
+
+    link._ws._authenticated = True
+    link._ws._websocket = _OpenSocket()
+
+    sensor = LWRF2LinkBinarySensor("Hub", "s1-hubgrp", link)
+    sensor.hass = object()
+    scheduled = []
+    sensor.async_schedule_update_ha_state = lambda *args: scheduled.append(sensor.is_on)
+
+    await sensor.async_added_to_hass()
+    try:
+        assert sensor.is_on is True
+        await link._link_socket_event_handler({
+            "items": [{"payload": {"linkId": "99", "online": False}}]
+        })
+        await next(iter(link._link_grace_tasks.values()))
+        assert sensor.is_on is False
+        assert scheduled == [False]
     finally:
         await sensor.async_will_remove_from_hass()
         await link.async_deactivate(source="cleanup")
