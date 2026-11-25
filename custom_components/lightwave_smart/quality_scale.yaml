@@ -72,9 +72,7 @@ rules:
   devices:
     status: todo
     comment: Outside the Silver target.
-  diagnostics:
-    status: todo
-    comment: Outside the Silver target.
+  diagnostics: done
   discovery:
     status: todo
     comment: Zeroconf is already in the manifest. The Core discovery review is outside the Silver target.
