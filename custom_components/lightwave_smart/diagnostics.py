@@ -8,12 +8,14 @@ from homeassistant.components.diagnostics import REDACTED, async_redact_data
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_TOKEN, CONF_USERNAME
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 from .const import (
     CONF_ACCESS_TOKEN,
     CONF_API_KEY,
     CONF_REFRESH_TOKEN,
     CONF_TOKEN_EXPIRY,
+    DOMAIN,
 )
 from .runtime import get_runtime
 from .utils import get_stored_tokens
@@ -27,6 +29,8 @@ TO_REDACT = {
     CONF_REFRESH_TOKEN,
     "id_token",
 }
+
+FEATURES_TO_REDACT = {"locationLatitude", "locationLongitude"}
 
 
 def _attr(obj: Any, name: str) -> Any:
@@ -47,7 +51,9 @@ def _without_email(value: Any) -> Any:
 def _feature_states(featureset: Any) -> dict[str, Any]:
     states = {}
     for feature_type, feature in (_attr(featureset, "features") or {}).items():
-        states[feature_type] = _attr(feature, "state")
+        states[feature_type] = (
+            REDACTED if feature_type in FEATURES_TO_REDACT else _attr(feature, "state")
+        )
     return states
 
 
@@ -56,6 +62,7 @@ def _device(device: Any) -> dict[str, Any]:
         "product_code": _attr(device, "product_code"),
         "virtual_product_code": _attr(device, "virtual_product_code"),
         "manufacturer_code": _attr(device, "manufacturer_code"),
+        "serial": _attr(device, "serial"),
         "firmware_version": _attr(device, "firmware_version"),
         "latest_firmware_version": _attr(device, "latest_firmware_version"),
         "connection_status": _attr(device, "connection_status"),
@@ -88,6 +95,74 @@ def _link(link: Any) -> dict[str, Any]:
     }
 
 
+def _entries(hass: HomeAssistant) -> list[dict[str, Any]]:
+    """Summarise every Lightwave entry, including disabled and ignored ones."""
+    return [
+        {
+            "entry_id": entry.entry_id,
+            "title": _without_email(entry.title),
+            "unique_id": _without_email(entry.unique_id),
+            "source": entry.source,
+            "state": entry.state.value,
+            "disabled_by": entry.disabled_by,
+            "created_at": entry.created_at.isoformat(),
+        }
+        for entry in hass.config_entries.async_entries(DOMAIN)
+    ]
+
+
+def _lightwave_identifiers(device: Any) -> list[str]:
+    return sorted(value for domain, value in device.identifiers if domain == DOMAIN)
+
+
+def _registry(hass: HomeAssistant) -> dict[str, Any]:
+    """List registry devices with Lightwave identifiers, whichever entry owns them."""
+    device_registry = dr.async_get(hass)
+    entity_registry = er.async_get(hass)
+    known_entries = {entry.entry_id for entry in hass.config_entries.async_entries()}
+
+    devices = []
+    for device in device_registry.devices.values():
+        identifiers = _lightwave_identifiers(device)
+        if not identifiers:
+            continue
+        entities = er.async_entries_for_device(
+            entity_registry, device.id, include_disabled_entities=True
+        )
+        devices.append(
+            {
+                "id": device.id,
+                "identifiers": identifiers,
+                "config_entry_id": device.config_entry_id,
+                "config_entry_exists": device.config_entry_id in known_entries,
+                "name": device.name,
+                "name_by_user": device.name_by_user,
+                "model": device.model,
+                "serial_number": device.serial_number,
+                "disabled_by": device.disabled_by,
+                "via_device_id": device.via_device_id,
+                "created_at": device.created_at.isoformat(),
+                "entities": len(entities),
+                "disabled_entities": sum(
+                    1 for entity in entities if entity.disabled_by is not None
+                ),
+            }
+        )
+
+    deleted_devices = [
+        {
+            "id": device.id,
+            "identifiers": _lightwave_identifiers(device),
+            "config_entry_id": device.config_entry_id,
+            "orphaned_timestamp": device.orphaned_timestamp,
+        }
+        for device in device_registry.deleted_devices.values()
+        if _lightwave_identifiers(device)
+    ]
+
+    return {"devices": devices, "deleted_devices": deleted_devices}
+
+
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> dict[str, Any]:
@@ -108,5 +183,7 @@ async def async_get_config_entry_diagnostics(
     return {
         "entry": entry_dict,
         "stored_tokens": stored_tokens,
+        "all_entries": _entries(hass),
+        "registry": _registry(hass),
         "link": _link(runtime.link) if runtime and runtime.link else None,
     }

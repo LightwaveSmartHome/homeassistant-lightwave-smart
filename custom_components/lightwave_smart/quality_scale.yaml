@@ -126,7 +126,7 @@ rules:
     comment: A reconfigure step exists. The Gold review is outside the Silver target.
   repair-issues:
     status: todo
-    comment: The link-disconnected repair exists. The Gold review is outside the Silver target.
+    comment: The link-disconnected and duplicate-account repairs exist. The Gold review is outside the Silver target.
   stale-devices:
     status: todo
     comment: Outside the Silver target.

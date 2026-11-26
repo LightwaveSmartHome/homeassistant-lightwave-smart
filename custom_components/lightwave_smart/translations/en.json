@@ -60,6 +60,10 @@
                 "title": "Different Lightwave account",
                 "description": "This integration is set up for {current_account}. You signed in as {new_account}. Continue to replace this setup with the new account, or cancel to keep the current one."
             },
+            "confirm_additional_account": {
+                "title": "Lightwave Smart is already set up",
+                "description": "Lightwave Smart is already set up as {existing_accounts}. Home Assistant cannot tell whether that is the Lightwave account you just signed in with.\n\nIf it is the same account, close this dialog. Adding it again would show your devices twice.\n\nSubmit only to add a different Lightwave account."
+            },
             "oauth_auth_method": {
                 "title": "Lightwave Smart - Account Linking Configuration",
                 "description": "{discovered_hub}You will be redirected to Lightwave to authorize the integration. Once authorized, you will be redirected back to Home Assistant to complete the setup.",
@@ -79,6 +83,7 @@
             "already_configured": "This account is already configured.",
             "reauth_successful": "Re-authentication was successful.",
             "reconfigure_successful": "Reconfigure was successful.",
+            "unknown": "An unexpected error occurred. Please try again.",
             "unique_id_mismatch": "A different username was given, the original username is required. Please enter the original username or delete the integration and try again."
         }
     },
@@ -128,6 +133,17 @@
         "link_disconnected": {
             "title": "Lightwave connection lost",
             "description": "The connection to Lightwave has been down for two minutes. The link keeps trying to reconnect. This repair is removed when the connection is back."
+        },
+        "duplicate_account": {
+            "title": "Lightwave Smart is set up twice",
+            "fix_flow": {
+                "step": {
+                    "confirm": {
+                        "title": "Remove the second Lightwave Smart setup",
+                        "description": "{entry_title} uses the same Lightwave hubs as {owner_title}, so it has not been started. Submit to remove {entry_title}. {owner_title} and its devices stay."
+                    }
+                }
+            }
         }
     },
     "application_credentials": {

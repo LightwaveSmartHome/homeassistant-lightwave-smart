@@ -11,6 +11,7 @@ from homeassistant.loader import async_get_integration
 from homeassistant.const import (CONF_USERNAME, CONF_PASSWORD)
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.config_entries import (
+    SOURCE_IGNORE,
     SOURCE_REAUTH,
     SOURCE_RECONFIGURE,
     SOURCE_USER,
@@ -30,6 +31,7 @@ from .const import (
     CONF_REFRESH_TOKEN, 
     CONF_ACCESS_TOKEN,
     CONF_LW_CLOUD_IDS,
+    CONF_LW_HUB_SERIALS,
     CONF_LW_INSTANCE_NAME,
     CONF_LW_OAUTH_USER_INPUT,
     CONF_LW_USER_ID,
@@ -198,10 +200,12 @@ def account_unique_id(data: Mapping[str, Any] | None) -> str | None:
     )
 
 
-def _cloud_ids_from_data(data: Mapping[str, Any] | None) -> list[str]:
+def _cloud_ids_from_data(
+    data: Mapping[str, Any] | None, key: str = CONF_LW_CLOUD_IDS
+) -> list[str]:
     if not isinstance(data, Mapping):
         return []
-    stored = data.get(CONF_LW_CLOUD_IDS)
+    stored = data.get(key)
     if isinstance(stored, str):
         text = stored.strip()
         return [text] if text else []
@@ -214,6 +218,25 @@ def _cloud_ids_from_data(data: Mapping[str, Any] | None) -> list[str]:
             if text and text not in ids:
                 ids.append(text)
     return ids
+
+
+def _entry_owns_hub(entry: ConfigEntry, cloud_id: str) -> bool:
+    """Return True when this entry has the hub. A hub's serial is its mDNS cloud number."""
+    if cloud_id in _cloud_ids_from_data(entry.data):
+        return True
+    serials = _cloud_ids_from_data(entry.data, CONF_LW_HUB_SERIALS)
+    return cloud_id.upper() in {serial.upper() for serial in serials}
+
+
+def _entry_knows_hubs(entry: ConfigEntry) -> bool:
+    return bool(
+        _cloud_ids_from_data(entry.data)
+        or _cloud_ids_from_data(entry.data, CONF_LW_HUB_SERIALS)
+    )
+
+
+def _is_email_id(value: str | None) -> bool:
+    return isinstance(value, str) and "@" in value
 
 
 def _account_label(account_id: str | None, data: Mapping[str, Any] | None, title: str | None = None) -> str:
@@ -565,6 +588,28 @@ class lightwave_smartFlowHandler(
             self.hass.config_entries.async_update_entry(entry, unique_id=account_id)
             claimed.add(account_id)
 
+    def _account_entries(self) -> list[ConfigEntry]:
+        return [
+            entry
+            for entry in self.hass.config_entries.async_entries(DOMAIN)
+            if entry.source != SOURCE_IGNORE
+        ]
+
+    def _entries_that_may_match(self, account_id: str | None) -> list[ConfigEntry]:
+        """Return entries this login cannot be told apart from.
+
+        An id can only be compared with an id of the same kind. An email
+        entry and a user id login, or a login with no id at all, may still be
+        the same Lightwave account.
+        """
+        return [
+            entry
+            for entry in self._account_entries()
+            if account_id is None
+            or entry.unique_id in _LEGACY_UNIQUE_IDS
+            or _is_email_id(entry.unique_id) != _is_email_id(account_id)
+        ]
+
     def _target_entry(self) -> ConfigEntry | None:
         entry_id = self.context.get("entry_id")
         if not entry_id:
@@ -668,7 +713,30 @@ class lightwave_smartFlowHandler(
         if not title:
             title = "Lightwave Smart"
         data = self._data_with_discovered_hub(data, None)
+        if self._entries_that_may_match(account_id):
+            self._pending_account_setup = {"data": data, "title": title}
+            return await self.async_step_confirm_additional_account()
         return self.async_create_entry(title=title, data=data)
+
+    async def async_step_confirm_additional_account(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Ask before adding a login that may repeat an existing setup."""
+        pending = self._pending_account_setup
+        if not pending:
+            return self.async_abort(reason="unknown")
+        if user_input is None:
+            existing = ", ".join(
+                entry.title for entry in self._entries_that_may_match(
+                    account_unique_id(pending["data"])
+                )
+            )
+            return self.async_show_form(
+                step_id="confirm_additional_account",
+                description_placeholders={"existing_accounts": existing},
+            )
+        self._pending_account_setup = None
+        return self.async_create_entry(title=pending["title"], data=pending["data"])
 
     async def async_step_confirm_account_change(
         self, user_input: dict[str, Any] | None = None
@@ -712,12 +780,14 @@ class lightwave_smartFlowHandler(
 
         # The same hub keeps one discovery flow. A configured account does not
         # hide a different hub, so another property can still be added.
+        # An entry that has not recorded its hubs yet, such as one upgraded
+        # from before discovery, may own this hub, so stay quiet until it has.
         self._discovered_cloud_id = _zeroconf_cloud_id(discovery_info)
         cloud_id = self._discovered_cloud_id
-        if cloud_id and any(
-            cloud_id in _cloud_ids_from_data(entry.data)
-            for entry in self.hass.config_entries.async_entries(DOMAIN)
-        ):
+        entries = self._account_entries()
+        if any(not _entry_knows_hubs(entry) for entry in entries):
+            return self.async_abort(reason="already_configured")
+        if cloud_id and any(_entry_owns_hub(entry, cloud_id) for entry in entries):
             return self.async_abort(reason="already_configured")
         if cloud_id:
             await self.async_set_unique_id(f"discovery:{cloud_id}")

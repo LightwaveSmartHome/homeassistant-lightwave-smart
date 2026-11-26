@@ -20,6 +20,7 @@ from custom_components.lightwave_smart.entity import (
     drop_general_callback,
 )
 from custom_components.lightwave_smart.runtime import LightwaveRuntimeData, get_runtime
+from tests.helpers.link import separate_hub_per_link
 
 
 def _entry(hass):
@@ -227,8 +228,9 @@ async def test_actions_fail_clearly_and_register_once(hass, mock_link):
     )
 
 
-async def test_later_account_still_runs_and_led_colour_rolls_back(hass, mock_link):
+async def test_later_account_still_runs_and_led_colour_rolls_back(hass, mock_link, link_script):
     """A failed first account does not skip the next, and a failed LED write keeps its colour."""
+    separate_hub_per_link(link_script)
     first = _entry(hass)
     second = MockConfigEntry(
         domain=DOMAIN,

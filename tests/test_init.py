@@ -8,7 +8,14 @@ from datetime import timedelta
 from unittest.mock import patch
 
 import pytest
-from homeassistant.config_entries import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.components.repairs import ConfirmRepairFlow
+from homeassistant.config_entries import (
+    SOURCE_IGNORE,
+    ConfigEntryAuthFailed,
+    ConfigEntryDisabler,
+    ConfigEntryNotReady,
+    ConfigEntryState,
+)
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.const import CONF_PASSWORD, CONF_TOKEN, CONF_USERNAME
 from homeassistant.helpers import config_entry_oauth2_flow, device_registry as dr, entity_registry as er, issue_registry as ir
@@ -27,17 +34,24 @@ from custom_components.lightwave_smart.__init__ import (
     _classify_connect_failure,
     _safe_deactivate_link,
     _schedule_link_repair,
+    duplicate_issue_id,
 )
 from custom_components.lightwave_smart.const import (
     CONF_API_KEY,
     CONF_LW_AUTH_METHOD,
+    CONF_LW_HUB_SERIALS,
     CONF_REFRESH_TOKEN,
     DOMAIN,
+)
+from custom_components.lightwave_smart.repairs import (
+    RemoveDuplicateEntryFlow,
+    async_create_fix_flow,
 )
 from custom_components.lightwave_smart.utils import set_stored_tokens
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
 
 from tests.helpers.errors import oauth_reauth_error
+from tests.helpers.link import separate_hub_per_link
 
 
 def _entry(hass, data, options=None, entry_id="entry-1"):
@@ -173,6 +187,179 @@ async def test_link_repair_issue(hass, mock_link):
     assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
 
 
+async def test_same_login_twice_is_not_started(hass, mock_link):
+    """Issue 86: a second entry for the same login gets a repair and no entities."""
+    original = _entry(hass, _password_data(), entry_id="original")
+    assert await hass.config_entries.async_setup(original.entry_id)
+    await hass.async_block_till_done()
+    assert original.state is ConfigEntryState.LOADED
+    assert original.data[CONF_LW_HUB_SERIALS] == ["HUB"]
+
+    ignored = MockConfigEntry(domain=DOMAIN, source=SOURCE_IGNORE, unique_id="discovery:X")
+    ignored.add_to_hass(hass)
+    duplicate = _entry(
+        hass,
+        {CONF_LW_AUTH_METHOD: "oauth", CONF_TOKEN: {"access_token": "a", "expires_at": 9_999_999_999}},
+        entry_id="duplicate",
+    )
+    hass.config_entries.async_update_entry(duplicate, title="Lightwave Smart")
+
+    async def _impl(hass_arg, config_entry):
+        return type("Impl", (), {"name": "Mock", "domain": DOMAIN})()
+
+    with patch(
+        "custom_components.lightwave_smart.config_entry_oauth2_flow.async_get_config_entry_implementation",
+        side_effect=_impl,
+    ):
+        assert not await hass.config_entries.async_setup(duplicate.entry_id)
+    await hass.async_block_till_done()
+    assert duplicate.state is ConfigEntryState.SETUP_ERROR
+    assert er.async_entries_for_config_entry(er.async_get(hass), duplicate.entry_id) == []
+
+    issue_id = duplicate_issue_id(duplicate.entry_id)
+    issue = ir.async_get(hass).async_get_issue(DOMAIN, issue_id)
+    assert issue is not None
+    assert issue.is_fixable
+    assert issue.translation_placeholders == {
+        "entry_title": "Lightwave Smart",
+        "owner_title": "House",
+    }
+
+    flow = await async_create_fix_flow(hass, issue_id, issue.data)
+    assert isinstance(flow, RemoveDuplicateEntryFlow)
+    flow.hass = hass
+    flow.handler = DOMAIN
+    flow.issue_id = issue_id
+    shown = await flow.async_step_init()
+    assert shown["step_id"] == "confirm"
+    assert shown["description_placeholders"]["owner_title"] == "House"
+    done = await flow.async_step_confirm({})
+    assert done["type"] == "create_entry"
+    await hass.async_block_till_done()
+    assert hass.config_entries.async_get_entry(duplicate.entry_id) is None
+    assert hass.config_entries.async_get_entry(original.entry_id) is not None
+    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
+
+    again = await flow.async_step_confirm({})
+    assert again["type"] == "create_entry"
+    other = await async_create_fix_flow(hass, "something_else", None)
+    assert type(other) is ConfirmRepairFlow
+
+
+async def test_disabled_later_duplicate_gets_repair_from_owner(hass, mock_link, link_script):
+    """Issue 86: a disabled second entry is never set up, so the owner raises its repair."""
+    original = _entry(hass, _password_data(), entry_id="original")
+    duplicate = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_LW_AUTH_METHOD: "oauth", CONF_TOKEN: {"access_token": "a"}},
+        unique_id="lw-user-1",
+        title="Lightwave Smart",
+        entry_id="duplicate",
+        disabled_by=ConfigEntryDisabler.USER,
+    )
+    duplicate.add_to_hass(hass)
+    device_reg = dr.async_get(hass)
+    twin = device_reg.async_get_or_create(
+        config_entry_id=duplicate.entry_id, identifiers={(DOMAIN, "s1-hub")}
+    )
+
+    assert await hass.config_entries.async_setup(original.entry_id)
+    await hass.async_block_till_done()
+    assert original.state is ConfigEntryState.LOADED
+
+    issue_id = duplicate_issue_id(duplicate.entry_id)
+    issue = ir.async_get(hass).async_get_issue(DOMAIN, issue_id)
+    assert issue is not None
+    assert issue.translation_placeholders == {
+        "entry_title": "Lightwave Smart",
+        "owner_title": "House",
+    }
+    assert issue.data == {"entry_id": "duplicate", "owner_entry_id": "original"}
+
+    links_before = len(link_script.links)
+    flow = await async_create_fix_flow(hass, issue_id, issue.data)
+    flow.hass = hass
+    flow.handler = DOMAIN
+    flow.issue_id = issue_id
+    done = await flow.async_step_confirm({})
+    assert done["type"] == "create_entry"
+    await hass.async_block_till_done()
+
+    assert hass.config_entries.async_get_entry(duplicate.entry_id) is None
+    assert device_reg.async_get(twin.id) is None
+    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
+    assert original.state is ConfigEntryState.LOADED
+    assert len(link_script.links) == links_before + 1
+
+
+async def test_running_later_entry_is_not_offered_for_removal(hass, mock_link):
+    """An older entry re-enabled after a newer one started does not flag the newer one."""
+    earlier = MockConfigEntry(
+        domain=DOMAIN,
+        data=_password_data(),
+        unique_id="earlier",
+        title="House",
+        entry_id="earlier",
+        disabled_by=ConfigEntryDisabler.USER,
+    )
+    earlier.add_to_hass(hass)
+    dr.async_get(hass).async_get_or_create(
+        config_entry_id=earlier.entry_id, identifiers={(DOMAIN, "s1-hub")}
+    )
+    later = _entry(hass, _password_data(), entry_id="later")
+    assert await hass.config_entries.async_setup(later.entry_id)
+    await hass.async_block_till_done()
+    assert later.state is ConfigEntryState.LOADED
+
+    await hass.config_entries.async_set_disabled_by(earlier.entry_id, None)
+    await hass.async_block_till_done()
+    assert earlier.state is ConfigEntryState.LOADED
+    assert later.state is ConfigEntryState.LOADED
+    assert ir.async_get(hass).async_get_issue(DOMAIN, duplicate_issue_id(later.entry_id)) is None
+
+
+async def test_duplicate_repair_without_loaded_owner(hass, mock_link):
+    owner = _entry(hass, _password_data(), entry_id="owner")
+    duplicate = _entry(hass, _password_data(), entry_id="duplicate")
+    flow = await async_create_fix_flow(
+        hass,
+        duplicate_issue_id(duplicate.entry_id),
+        {"entry_id": duplicate.entry_id, "owner_entry_id": owner.entry_id},
+    )
+    flow.hass = hass
+    flow.handler = DOMAIN
+    flow.issue_id = duplicate_issue_id(duplicate.entry_id)
+    await flow.async_step_confirm({})
+    await hass.async_block_till_done()
+    assert hass.config_entries.async_get_entry(duplicate.entry_id) is None
+    assert owner.state is ConfigEntryState.NOT_LOADED
+
+
+async def test_earlier_disabled_entry_does_not_block(hass, mock_link):
+    disabled = _entry(hass, _password_data(), entry_id="disabled")
+    assert await hass.config_entries.async_setup(disabled.entry_id)
+    await hass.async_block_till_done()
+    await hass.config_entries.async_set_disabled_by(
+        disabled.entry_id, ConfigEntryDisabler.USER
+    )
+    await hass.async_block_till_done()
+
+    unregistered = _entry(hass, _password_data(), entry_id="unregistered")
+    later = _entry(hass, _password_data(), entry_id="later")
+    assert await hass.config_entries.async_setup(later.entry_id)
+    await hass.async_block_till_done()
+    assert later.state is ConfigEntryState.LOADED
+    assert unregistered.state is ConfigEntryState.NOT_LOADED
+
+    device_reg = dr.async_get(hass)
+    hub = device_reg.async_get_device_by_identifier((DOMAIN, "s1-hub"), later.entry_id)
+    device_reg.async_remove_device(hub.id)
+    fresh = _entry(hass, _password_data(), entry_id="fresh")
+    assert await hass.config_entries.async_setup(fresh.entry_id)
+    await hass.async_block_till_done()
+    assert fresh.state is ConfigEntryState.LOADED
+
+
 async def test_missing_credentials(hass, mock_link):
     entry = _entry(hass, {CONF_LW_AUTH_METHOD: "password", CONF_PASSWORD: "secret"})
     with pytest.raises(ConfigEntryAuthFailed):
@@ -196,6 +383,7 @@ async def test_missing_credentials(hass, mock_link):
 
 
 async def test_refresh_and_api_key_setup(hass, mock_link, link_script):
+    separate_hub_per_link(link_script)
     await set_stored_tokens(
         hass,
         "user@example.com",
@@ -366,7 +554,8 @@ async def test_deactivate_error_is_swallowed():
     await _safe_deactivate_link(Boom(), "boom")
 
 
-async def test_unload_edges(hass, mock_link):
+async def test_unload_edges(hass, mock_link, link_script):
+    separate_hub_per_link(link_script)
     missing = _entry(hass, _password_data(), entry_id="never")
     assert await async_unload_entry(hass, missing) is True
 

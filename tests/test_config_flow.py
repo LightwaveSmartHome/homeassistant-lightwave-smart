@@ -9,7 +9,12 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from homeassistant.config_entries import SOURCE_REAUTH, SOURCE_RECONFIGURE, SOURCE_USER
+from homeassistant.config_entries import (
+    SOURCE_IGNORE,
+    SOURCE_REAUTH,
+    SOURCE_RECONFIGURE,
+    SOURCE_USER,
+)
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import config_entry_oauth2_flow, storage
@@ -32,6 +37,7 @@ from custom_components.lightwave_smart.const import (
     CONF_HOMEKIT,
     CONF_LW_AUTH_METHOD,
     CONF_LW_CLOUD_IDS,
+    CONF_LW_HUB_SERIALS,
     CONF_LW_USER_ID,
     CONF_LW_INSTANCE_NAME,
     CONF_LW_OAUTH_USER_INPUT,
@@ -243,6 +249,10 @@ async def test_second_account_migrates_legacy_entry(hass, mock_link, mock_setup_
     result = await _submit_credentials(
         hass, result["flow_id"], username="New@Example.com", instance="New"
     )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "confirm_additional_account"
+    assert result["description_placeholders"]["existing_accounts"] == "Duplicate legacy, No identity"
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["result"].unique_id == "new@example.com"
 
@@ -505,6 +515,8 @@ async def _finish_oauth(hass, flow_id, implementation="lightwave_smart"):
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"], {"code": "abc", "state": "xyz"}
             )
+        elif result["step_id"] == "confirm_additional_account":
+            break
         else:
             result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
         guard += 1
@@ -567,6 +579,10 @@ async def test_oauth_reauth_and_unexpected_source(hass, mock_link, mock_setup_en
     flow = _flow(hass, fresh["flow_id"])
     flow.flow_impl = impl
     updated = await flow.async_oauth_create_entry({"token": {"access_token": "new"}})
+    assert updated["type"] is FlowResultType.FORM
+    assert updated["step_id"] == "confirm_additional_account"
+    assert updated["description_placeholders"]["existing_accounts"] == "Cloud house"
+    updated = await flow.async_step_confirm_additional_account({})
     assert updated["type"] is FlowResultType.CREATE_ENTRY
     assert updated["title"] == "Lightwave Smart"
     assert flow.unique_id is None
@@ -1078,3 +1094,75 @@ async def test_email_unique_id_upgrades_to_user_id(hass, mock_link, mock_setup_e
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "already_configured"
     assert entry.unique_id == _LIGHTWAVE_USER
+
+
+def _upgraded_email_entry(hass, **data) -> MockConfigEntry:
+    """An entry from before discovery, keyed by email because its token has no user id."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="user@example.com",
+        title="user@example.com",
+        data={
+            CONF_LW_AUTH_METHOD: "refresh",
+            CONF_USERNAME: "user@example.com",
+            CONF_PASSWORD: None,
+            **data,
+        },
+    )
+    entry.add_to_hass(hass)
+    return entry
+
+
+async def test_issue_86_upgrade_does_not_add_a_second_entry(hass, mock_link, mock_setup_entry):
+    """An upgraded email entry hides discovery, and Account Linking asks before adding."""
+    entry = _upgraded_email_entry(hass)
+    ignored = MockConfigEntry(domain=DOMAIN, source=SOURCE_IGNORE, unique_id="discovery:OTHER")
+    ignored.add_to_hass(hass)
+    discovered = _discovery("Lightwave Link Plus 310BD2._lightwave._tcp.local.", "BC310BD2")
+    hidden = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "zeroconf"}, data=discovered
+    )
+    assert hidden["type"] is FlowResultType.ABORT
+    assert hidden["reason"] == "already_configured"
+
+    impl = _MockOAuth(user_id=_LIGHTWAVE_USER)
+    config_entry_oauth2_flow.async_register_implementation(hass, DOMAIN, impl)
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    result = await _choose_method(hass, result["flow_id"], "oauth")
+    result = await _finish_oauth(hass, result["flow_id"])
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "confirm_additional_account"
+    assert result["description_placeholders"]["existing_accounts"] == "user@example.com"
+    hass.config_entries.flow.async_abort(result["flow_id"])
+    assert hass.config_entries.async_entries(DOMAIN) == [entry, ignored]
+
+
+async def test_discovery_uses_recorded_hub_serials(hass, mock_link, mock_setup_entry):
+    _upgraded_email_entry(hass, **{CONF_LW_HUB_SERIALS: ["bc310bd2"]})
+    discovered = _discovery("Lightwave Link Plus 310BD2._lightwave._tcp.local.", "BC310BD2")
+    owned = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "zeroconf"}, data=discovered
+    )
+    assert owned["type"] is FlowResultType.ABORT
+    assert owned["reason"] == "already_configured"
+
+    other = _discovery("Lightwave Link Plus 999999._lightwave._tcp.local.", "BC999999")
+    shown = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "zeroconf"}, data=other
+    )
+    assert shown["type"] is FlowResultType.FORM
+    hass.config_entries.flow.async_abort(shown["flow_id"])
+
+    suffix = _discovery("Lightwave Link Plus 310BD2._lightwave._tcp.local.", "310BD2")
+    not_exact = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "zeroconf"}, data=suffix
+    )
+    assert not_exact["type"] is FlowResultType.FORM
+
+
+async def test_confirm_additional_account_without_pending_aborts(hass, mock_link, mock_setup_entry):
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    flow = _flow(hass, result["flow_id"])
+    aborted = await flow.async_step_confirm_additional_account()
+    assert aborted["type"] is FlowResultType.ABORT
+    assert aborted["reason"] == "unknown"

@@ -342,6 +342,22 @@ def populate_hierarchy(link) -> None:
     bad_led_fs.features["rgbColor"] = _RaisingState(raw)
 
 
+def separate_hub_per_link(link_script) -> None:
+    """Give every link after the first its own hub, like a second Lightwave login."""
+
+    def after_prepare(link):
+        index = len(link_script.links)
+        if index == 0:
+            return
+        hub = link.featuresets.pop("s1-hub")
+        hub.featureset_id = f"s{index + 1}-hub"
+        hub.device.serial = f"HUB{index + 1}"
+        link.featuresets[hub.featureset_id] = hub
+        link.set_structure_data(hub.featureset_id, hub.featureset_id, "Cottage")
+
+    link_script.after_prepare = after_prepare
+
+
 def prepare_link(link) -> FakeWebsocket:
     websocket = FakeWebsocket()
     link._ws = websocket

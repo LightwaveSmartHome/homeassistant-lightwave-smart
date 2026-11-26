@@ -95,6 +95,10 @@ The integration options include Hide entities from HomeKit. When that is on, gen
 
 The Marketplace and HACS install the latest stable release. Beta versions are pre-releases. To receive those, turn on Pre-release for this repository. In the Marketplace that switch is on this repository's device under Settings > Devices & services > Marketplace. After an update, restart Home Assistant. The Marketplace raises a repair that can restart it for you.
 
+An update keeps your existing setup. Do not add the integration again after updating. If the existing entry needs you to sign in, it shows Reauthenticate on that entry. If Home Assistant offers to set up a Link Plus that is already set up, ignore it.
+
+If the same Lightwave account was added a second time, the newer entry is not started. A repair names both entries and can remove the newer one. The repair also appears if you disabled the newer entry. The original entry, its devices, and their history stay.
+
 ## Usage
 Once configured all switches, lights, thermostats, TRVs, blinds/covers, sensors, wirefrees ("Wire-Free Scene Selectors"), energy monitors etc that are configured in your Lightwave app will be added to Home Assistant.
 

@@ -5,6 +5,7 @@ from .const import (
     CONF_ACCESS_TOKEN,
     CONF_API_KEY,
     CONF_LW_AUTH_METHOD,
+    CONF_LW_HUB_SERIALS,
     CONF_REFRESH_TOKEN,
     CONF_TOKEN_EXPIRY,
     DOMAIN,
@@ -12,12 +13,15 @@ from .const import (
 from .runtime import LightwaveRuntimeData, get_runtime
 from .services import async_setup_services
 from homeassistant.config_entries import (
+    SOURCE_IGNORE,
     ConfigEntry,
     ConfigEntryAuthFailed,
     ConfigEntryNotReady,
+    ConfigEntryState,
 )
 from homeassistant.const import CONF_PASSWORD, CONF_TOKEN, CONF_USERNAME
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import ConfigEntryError
 from homeassistant.helpers import (
     config_entry_oauth2_flow,
     config_validation as cv,
@@ -53,6 +57,94 @@ def _link_issue_id(entry_id):
 
 def _clear_link_issue(hass, entry_id):
     ir.async_delete_issue(hass, DOMAIN, _link_issue_id(entry_id))
+
+
+def duplicate_issue_id(entry_id):
+    return f"{entry_id}_duplicate_account"
+
+
+def _hub_identifiers(link):
+    return {(DOMAIN, featureset_id) for featureset_id, _name in link.get_hubs()}
+
+
+def _entry_has_hub(device_registry, entry, hub_identifiers):
+    return any(
+        device.identifiers & hub_identifiers
+        for device in dr.async_entries_for_config_entry(device_registry, entry.entry_id)
+    )
+
+
+def _earlier_owner(hass, config_entry, link):
+    """Return an older entry that already has a hub from this login.
+
+    The same login added twice has the same hub identifiers. The older entry
+    keeps them.
+    """
+    hub_identifiers = _hub_identifiers(link)
+    device_registry = dr.async_get(hass)
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        if entry.entry_id == config_entry.entry_id:
+            break
+        if entry.source == SOURCE_IGNORE or entry.disabled_by is not None:
+            continue
+        if _entry_has_hub(device_registry, entry, hub_identifiers):
+            return entry
+    return None
+
+
+def _later_duplicates(hass, config_entry, link):
+    """Return newer entries that registered a hub from this login and are not running.
+
+    A disabled entry is never set up, so it cannot find its owner itself. A
+    running newer entry started while this one was disabled. The user has been
+    using it, so it is not offered for removal.
+    """
+    hub_identifiers = _hub_identifiers(link)
+    device_registry = dr.async_get(hass)
+    duplicates = []
+    later = False
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        if entry.entry_id == config_entry.entry_id:
+            later = True
+            continue
+        if (
+            not later
+            or entry.source == SOURCE_IGNORE
+            or entry.state is ConfigEntryState.LOADED
+        ):
+            continue
+        if _entry_has_hub(device_registry, entry, hub_identifiers):
+            duplicates.append(entry)
+    return duplicates
+
+
+def _raise_duplicate_issue(hass, entry, owner):
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        duplicate_issue_id(entry.entry_id),
+        is_fixable=True,
+        severity=ir.IssueSeverity.ERROR,
+        translation_key="duplicate_account",
+        translation_placeholders={
+            "entry_title": entry.title,
+            "owner_title": owner.title,
+        },
+        data={"entry_id": entry.entry_id, "owner_entry_id": owner.entry_id},
+    )
+
+
+def _record_hub_serials(hass, config_entry, link):
+    """Store hub serials so discovery can tell this login's hubs apart."""
+    serials = []
+    for featureset_id, _name in link.get_hubs():
+        serial = getattr(link.featuresets[featureset_id].device, "serial", None)
+        if isinstance(serial, str) and serial.strip() and serial.strip() not in serials:
+            serials.append(serial.strip())
+    if serials and config_entry.data.get(CONF_LW_HUB_SERIALS) != serials:
+        hass.config_entries.async_update_entry(
+            config_entry, data={**config_entry.data, CONF_LW_HUB_SERIALS: serials}
+        )
 
 
 def _cancel_link_repair_delay(hass, entry_id):
@@ -223,6 +315,20 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
         _clear_link_issue(hass, entry_id)
         raise _classify_connect_failure(link, auth_method, had_access_token)
 
+    owner = _earlier_owner(hass, config_entry, link)
+    if owner is not None:
+        await _safe_deactivate_link(link, "setup_duplicate")
+        _cancel_link_repair_delay(hass, entry_id)
+        _clear_link_issue(hass, entry_id)
+        _raise_duplicate_issue(hass, config_entry, owner)
+        raise ConfigEntryError(
+            f"This Lightwave login is already set up as '{owner.title}'"
+        )
+    ir.async_delete_issue(hass, DOMAIN, duplicate_issue_id(entry_id))
+    for duplicate in _later_duplicates(hass, config_entry, link):
+        _raise_duplicate_issue(hass, duplicate, config_entry)
+    _record_hub_serials(hass, config_entry, link)
+
     runtime = LightwaveRuntimeData(link=link)
     config_entry.runtime_data = runtime
 
@@ -316,6 +422,7 @@ async def async_remove_entry(hass, config_entry):
     _LOGGER.debug(f"Removing config entry: {config_entry.entry_id}")
     _cancel_link_repair_delay(hass, config_entry.entry_id)
     _clear_link_issue(hass, config_entry.entry_id)
+    ir.async_delete_issue(hass, DOMAIN, duplicate_issue_id(config_entry.entry_id))
 
 
 async def setup_link_lw(hass, config_entry):
