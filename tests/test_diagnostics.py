@@ -19,11 +19,23 @@ from custom_components.lightwave_smart.const import (
     DOMAIN,
 )
 from custom_components.lightwave_smart.diagnostics import (
+    _lightwave_identifiers,
     async_get_config_entry_diagnostics,
 )
 from custom_components.lightwave_smart.runtime import LightwaveRuntimeData
 from custom_components.lightwave_smart.utils import set_stored_tokens
 from tests.helpers.link import add_feature
+
+
+def test_lightwave_identifiers_tolerates_extra_tuple_parts():
+    class Device:
+        identifiers = {
+            (DOMAIN, "good"),
+            ("other", "x", "y"),
+            (DOMAIN,),
+        }
+
+    assert _lightwave_identifiers(Device()) == ["good"]
 
 
 async def test_loaded_entry_redacts_secrets(hass, hass_client, mock_link):

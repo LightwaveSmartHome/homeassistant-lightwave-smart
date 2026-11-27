@@ -112,7 +112,13 @@ def _entries(hass: HomeAssistant) -> list[dict[str, Any]]:
 
 
 def _lightwave_identifiers(device: Any) -> list[str]:
-    return sorted(value for domain, value in device.identifiers if domain == DOMAIN)
+    # Identifiers are normally (domain, id). Other integrations on a shared
+    # device can leave longer tuples, so do not unpack to exactly two items.
+    return sorted(
+        identifier[1]
+        for identifier in device.identifiers
+        if len(identifier) >= 2 and identifier[0] == DOMAIN
+    )
 
 
 def _registry(hass: HomeAssistant) -> dict[str, Any]:
